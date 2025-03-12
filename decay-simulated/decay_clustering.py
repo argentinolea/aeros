@@ -1,6 +1,6 @@
 from pyspark.ml.clustering import KMeans
 from pyspark.ml.feature import VectorAssembler
-from pyspark.sql.functions import col, log,trim, unix_timestamp, lag, when, count, sum as ps_sum, first, last, min as ps_min, max as ps_max, avg, lit, round as ps_round
+from pyspark.sql.functions import concat_ws,col, log,trim, unix_timestamp, lag, when, count, sum as ps_sum, first, last, min as ps_min, max as ps_max, avg, lit, round as ps_round
 from pyspark.sql import SparkSession, Window
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -84,27 +84,60 @@ def process_co2_decay_events(df):
         "duration_minutes",
         (unix_timestamp(trim(col("end_time")), "MM/dd  HH:mm:ss") - unix_timestamp(trim(col("start_time")), "MM/dd  HH:mm:ss")) / 60
     )
+    min_duration = 30 
+    # **Step 1: Split long decay events into segments of 120 minutes**
+    max_duration = 600  # Maximum allowed decay duration in minutes
+
+    # Create a new column to track segment IDs based on 120-minute intervals
+    decay_events = decay_events.withColumn(
+        "segment_id",
+        (unix_timestamp(col("Datetime")) / (max_duration * 60)).cast("int")
+    )
+
+    # Recalculate event summaries but now considering these segments
+    segmented_summary = decay_events.groupBy("event_id", "segment_id").agg(
+        first("Datetime").alias("start_time"),
+        last("Datetime").alias("end_time"),
+        first("Zone Air CO2 Concentration").alias("start_co2"),
+        last("Zone Air CO2 Concentration").alias("end_co2"),
+        ps_min("Zone Air CO2 Concentration").alias("min_co2"),
+        avg("co2_diff").alias("co2_trend")
+    )
+
+    segmented_summary = segmented_summary.withColumn(
+        "duration_minutes",
+        (unix_timestamp(trim(col("end_time")), "MM/dd  HH:mm:ss") - unix_timestamp(trim(col("start_time")), "MM/dd  HH:mm:ss")) / 60
+    )
     
-   # event_summary["co2_trend"] = decay_events.groupby("event_id")["Zone Air CO2 Concentration"].diff().mean()
-    #event_summary.show(10)
-    # Apply filtering conditions
+    # Apply the same decay filters as before
     threshold_factor = 1.4  # Allows a 20% increase from min_co2 but rejects anything higher
-    filtered_events = event_summary.filter(
+    filtered_segments = segmented_summary.filter(
         (col("start_co2") > col("end_co2")) &  # Ensuring initial CO2 is higher than final
         (col("min_co2") < col("start_co2")) &  # Ensuring real decay occurred
         (col("end_co2") < threshold_factor * col("min_co2")) &  # Avoid fake decays
-        (col("co2_trend") < 0)  # Ensuring CO2 trend is negative (decay)
+        (col("co2_trend") < 0) & # Ensuring CO2 trend is negative (decay)
+        (col("duration_minutes") >= min_duration) &
+        (col("duration_minutes") <= max_duration)
+    )
+
+    # **Step 2: Ensure Continuous Decay is Maintained**
+    # Assign new segment-based event IDs
+    filtered_segments = filtered_segments.withColumn(
+        "new_event_id", concat_ws("_", col("event_id"), col("segment_id"))
     )
 
     # Assign "Ignore" to non-matching presence states
     df = df.withColumn("presence_analysis", col("BinaryOccupancy").cast("string"))
     df = df.withColumn(
         "presence_analysis",
-        when((col("BinaryOccupancy") == 0) & (~col("event_id").isin([row["event_id"] for row in filtered_events.collect()])), "Ignore")
-        .otherwise(col("presence_analysis"))
+        when(
+            (col("BinaryOccupancy") == 0) & (~col("event_id").isin([row["event_id"] for row in filtered_segments.collect()])), 
+            "Ignore"
+        ).otherwise(col("presence_analysis"))
     )
+    print(filtered_segments.show(10))
 
-    return df, filtered_events
+    return df, filtered_segments
 
 # Clustering function
 def cluster_co2_decay_events(filtered_events, n_clusters=3):

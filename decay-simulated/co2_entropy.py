@@ -41,7 +41,7 @@ def process_co2_entropy(csv_file):
 
 
 def process_co2_entropy_by_day(csv_file,day):
-    """Reads a CSV file, filters data for 01/02/2025, and calculates entropy over time."""
+    """Reads a CSV file, filters data for 13/11/2024, and calculates entropy over time."""
     df = pd.read_csv(csv_file, delimiter=';')
     
     # Convert date column to datetime
@@ -49,7 +49,7 @@ def process_co2_entropy_by_day(csv_file,day):
     #df['Datetime'] = pd.to_datetime(df['Datetime'])
     df['presence_analysis'] = df['presence_analysis']
     
-    # Filter data only for 01/02/2025
+    # Filter data only for 13/11/2024
     target_date = day
     #df = df[df['Datetime'].dt.date == pd.to_datetime(target_date).date()]
     df = df.loc[
@@ -95,6 +95,6 @@ if __name__ == "__main__":
     print("Shannon Entropy of CO₂ levels:")
     print(f"presence_analysis=True: {entropy_values.get('1', 'No data')}")
     print(f"presence_analysis=False: {entropy_values.get('0', 'No data')}")
-    timestamps, entropy_values_plot = process_co2_entropy_by_day(csv_file,"12/02")
+    timestamps, entropy_values_plot = process_co2_entropy_by_day(csv_file,"11/13")
     plot_entropy(timestamps, entropy_values_plot)
     
