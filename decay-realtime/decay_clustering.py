@@ -35,17 +35,17 @@ def process_co2_decay_events(file_path):
 
     # Apply conditions: CO2 decay and duration > 30 min
     filtered_events = event_summary[
-        (event_summary["start_co2"] > event_summary["end_co2"]) & (event_summary["duration_minutes"] > 30)
+        (event_summary["start_co2"] > event_summary["end_co2"]) & (event_summary["duration_minutes"] > 40) & (event_summary["duration_minutes"] < 360)
     ]
     # Define a threshold to exclude fake decay events
-    threshold_factor = 1.4  # Allows a 40% increase from min_co2 but rejects anything higher
+    threshold_factor = 1.1  # Allows a 20% increase from min_co2 but rejects anything higher
     
     # Apply updated decay event conditions (Monotonicity in Decay)
-    filtered_events = event_summary[
-        (event_summary["start_co2"] > event_summary["end_co2"]) &  # Ensuring initial CO2 is higher than final
-        (event_summary["min_co2"] < event_summary["start_co2"]) &  # Ensuring real decay occurred
-        (event_summary["end_co2"] < threshold_factor * event_summary["min_co2"]) &  # Avoid cases where end CO2 rises too much
-        (event_summary["co2_trend"] < 0)
+    filtered_events = filtered_events[
+        (filtered_events["start_co2"] > filtered_events["end_co2"]) &  # Ensuring initial CO2 is higher than final
+        (filtered_events["min_co2"] < filtered_events["start_co2"]) &  # Ensuring real decay occurred
+        (filtered_events["end_co2"] < threshold_factor * filtered_events["min_co2"]) &  # Avoid cases where end CO2 rises too much
+        (filtered_events["co2_trend"] < 0)
     ]
     
 

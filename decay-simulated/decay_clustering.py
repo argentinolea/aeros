@@ -85,11 +85,15 @@ def process_co2_decay_events(df):
         (unix_timestamp(trim(col("end_time")), "MM/dd  HH:mm:ss") - unix_timestamp(trim(col("start_time")), "MM/dd  HH:mm:ss")) / 60
     )
     
+    filtered_events = event_summary[
+        (event_summary["start_co2"] > event_summary["end_co2"]) & (event_summary["duration_minutes"] > 40) & (event_summary["duration_minutes"] < 320)
+    ]
+    
    # event_summary["co2_trend"] = decay_events.groupby("event_id")["Zone Air CO2 Concentration"].diff().mean()
     #event_summary.show(10)
     # Apply filtering conditions
-    threshold_factor = 1.4  # Allows a 20% increase from min_co2 but rejects anything higher
-    filtered_events = event_summary.filter(
+    threshold_factor = 1.1  # Allows a 10% increase from min_co2 but rejects anything higher
+    filtered_events = filtered_events.filter(
         (col("start_co2") > col("end_co2")) &  # Ensuring initial CO2 is higher than final
         (col("min_co2") < col("start_co2")) &  # Ensuring real decay occurred
         (col("end_co2") < threshold_factor * col("min_co2")) &  # Avoid fake decays
