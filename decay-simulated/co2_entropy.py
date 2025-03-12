@@ -11,18 +11,29 @@ def shannon_entropy(values):
     entropy = -np.sum(probabilities * np.log2(probabilities))
     return entropy
 
+def fix_date_time(date_str):
+    # Handle "24:00:00" by replacing with "00:00:00" and adding a day
+    full_date_str = f"2024/{date_str}"
+    if "24:00:00" in full_date_str:
+        date_fixed = full_date_str.replace("24:00:00", "00:00:00")
+        dt = pd.to_datetime(date_fixed, format="%Y/%m/%d  %H:%M:%S")
+        return dt + pd.Timedelta(days=1)  # Move to next day
+    else:
+        return pd.to_datetime(full_date_str, format="%Y/%m/%d  %H:%M:%S")
+        
 def process_co2_entropy(csv_file):
     """Reads a CSV file, groups CO₂ values by presence_analysis, and calculates entropy."""
     df = pd.read_csv(csv_file, delimiter=';')
     
+    df['Datetime'] = df['Datetime'].apply(fix_date_time)
     # Ensure presence_analysis column is treated as boolean
-    df['date'] = pd.to_datetime(df['date'])
+    #df['Datetime'] = pd.to_datetime(df['Datetime'], format="%m/%d  %H:%M:%S")
    # df['presence_analysis'] = df['presence_analysis'].astype(str)
     
     # Group by presence_analysis
     entropy_results = {}
-    for presence_analysis_value in ["True", "False"]:
-        group_data = df[df['presence_analysis'] == presence_analysis_value]['co2'].tolist()
+    for presence_analysis_value in ["1", "0"]:
+        group_data = df[df['presence_analysis'] == presence_analysis_value]['Zone Air CO2 Concentration'].tolist()
         if group_data:
             entropy_results[presence_analysis_value] = shannon_entropy(group_data)
     
@@ -34,35 +45,38 @@ def process_co2_entropy_by_day(csv_file,day):
     df = pd.read_csv(csv_file, delimiter=';')
     
     # Convert date column to datetime
-    df['date'] = pd.to_datetime(df['date'])
+    df['Datetime'] = df['Datetime'].apply(fix_date_time)
+    #df['Datetime'] = pd.to_datetime(df['Datetime'])
     df['presence_analysis'] = df['presence_analysis']
     
     # Filter data only for 01/02/2025
     target_date = day
-    df = df[df['date'].dt.date == pd.to_datetime(target_date).date()]
-    
-    # Sort by time to ensure continuity
-    df.sort_values(by='date', inplace=True)
+    #df = df[df['Datetime'].dt.date == pd.to_datetime(target_date).date()]
+    df = df.loc[
+        (df["Datetime"].dt.month == int(target_date.split("/")[0])) & 
+        (df["Datetime"].dt.day == int(target_date.split("/")[1]))
+    ]# Sort by time to ensure continuity
+    print(df)
+    df.sort_values(by='Datetime', inplace=True)
     
     # Compute rolling entropy with a window of 5 minutes
     window_size = '5min'
-    entropy_results = {'True': [], 'False': []}
+    entropy_results = {'1': [], '0': []}
     timestamps = []
-    
-    for time, group in df.resample(window_size, on='date'):
+    for time, group in df.resample(window_size, on='Datetime'):
         timestamps.append(time)
-        for presence_analysis_value in ["True", "False"]:
-            co2_values = group[group['presence_analysis'] == presence_analysis_value]['co2'].tolist()
+        for presence_analysis_value in ["1", "0"]:
+            co2_values = group[group['presence_analysis'] == presence_analysis_value]['Zone Air CO2 Concentration'].tolist()
             entropy = shannon_entropy(co2_values) if co2_values else np.nan
             entropy_results[str(presence_analysis_value)].append(entropy)
-    
+
     return timestamps, entropy_results
 
 def plot_entropy(timestamps, entropy_results):
     """Plot continuous entropy trends over time for presence_analysis and absence on 01/02/2025."""
     plt.figure(figsize=(12, 6))
-    plt.plot(timestamps, entropy_results['True'], label='presence_analysis=True', linestyle='-', marker='', linewidth=2)
-    plt.plot(timestamps, entropy_results['False'], label='presence_analysis=False', linestyle='-', marker='', linewidth=2)
+    plt.plot(timestamps, entropy_results['1'], label='presence_analysis=True', linestyle='-', marker='', linewidth=2)
+    plt.plot(timestamps, entropy_results['0'], label='presence_analysis=False', linestyle='-', marker='', linewidth=2)
     plt.xlabel('Time')
     plt.ylabel('Shannon Entropy')
     plt.title('Shannon Entropy of CO₂ Levels on 01/02/2025')
@@ -79,8 +93,8 @@ if __name__ == "__main__":
     entropy_values = process_co2_entropy(csv_file)
     
     print("Shannon Entropy of CO₂ levels:")
-    print(f"presence_analysis=True: {entropy_values.get('True', 'No data')}")
-    print(f"presence_analysis=False: {entropy_values.get('False', 'No data')}")
-    timestamps, entropy_values_plot = process_co2_entropy_by_day(csv_file,"2025-02-01")
+    print(f"presence_analysis=True: {entropy_values.get('1', 'No data')}")
+    print(f"presence_analysis=False: {entropy_values.get('0', 'No data')}")
+    timestamps, entropy_values_plot = process_co2_entropy_by_day(csv_file,"12/02")
     plot_entropy(timestamps, entropy_values_plot)
     

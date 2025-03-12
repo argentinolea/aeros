@@ -1,10 +1,12 @@
 from pyspark.ml.clustering import KMeans
 from pyspark.ml.feature import VectorAssembler
-from pyspark.sql.functions import col, lag, when, count, sum as ps_sum, first, last, min as ps_min, max as ps_max, avg, lit, round as ps_round
+from pyspark.sql.functions import col, log,trim, unix_timestamp, lag, when, count, sum as ps_sum, first, last, min as ps_min, max as ps_max, avg, lit, round as ps_round
 from pyspark.sql import SparkSession, Window
 import pandas as pd
 import matplotlib.pyplot as plt
 import h5py
+import os
+import shutil
 
 spark = SparkSession.builder \
     .appName("Identify CO2 Low Variance Clusters") \
@@ -14,6 +16,7 @@ spark = SparkSession.builder \
     .config("spark.executor.memory", "8g") \
     .config("spark.task.maxDirectResultSize", "10M") \
     .getOrCreate()
+spark.sparkContext.setLogLevel("ERROR")
 
 input_file_path = "../dataset_office_rooms.h5"
 
@@ -61,7 +64,11 @@ def process_co2_decay_events(df):
 
     # Filter for decay events (only presence=False sequences)
     decay_events = df.filter(col("event_id").isNotNull())
-
+    window_spec_diff = Window.partitionBy("event_id").orderBy("Datetime")
+    decay_events = decay_events.withColumn(
+        "co2_diff",
+        col("Zone Air CO2 Concentration") - lag("Zone Air CO2 Concentration").over(window_spec_diff)
+    )
     # Aggregate data to find CO2 decay trends per event
     event_summary = decay_events.groupBy("event_id").agg(
         first("Datetime").alias("start_time"),
@@ -69,17 +76,19 @@ def process_co2_decay_events(df):
         first("Zone Air CO2 Concentration").alias("start_co2"),
         last("Zone Air CO2 Concentration").alias("end_co2"),
         ps_min("Zone Air CO2 Concentration").alias("min_co2"),
-        avg("Zone Air CO2 Concentration").alias("co2_trend")
+        avg("co2_diff").alias("co2_trend")
     )
 
     # Calculate event duration in minutes
     event_summary = event_summary.withColumn(
         "duration_minutes",
-        (col("end_time").cast("long") - col("start_time").cast("long")) / 60
+        (unix_timestamp(trim(col("end_time")), "MM/dd  HH:mm:ss") - unix_timestamp(trim(col("start_time")), "MM/dd  HH:mm:ss")) / 60
     )
-
+    
+   # event_summary["co2_trend"] = decay_events.groupby("event_id")["Zone Air CO2 Concentration"].diff().mean()
+    #event_summary.show(10)
     # Apply filtering conditions
-    threshold_factor = 1.2  # Allows a 20% increase from min_co2 but rejects anything higher
+    threshold_factor = 1.4  # Allows a 20% increase from min_co2 but rejects anything higher
     filtered_events = event_summary.filter(
         (col("start_co2") > col("end_co2")) &  # Ensuring initial CO2 is higher than final
         (col("min_co2") < col("start_co2")) &  # Ensuring real decay occurred
@@ -99,6 +108,7 @@ def process_co2_decay_events(df):
 
 # Clustering function
 def cluster_co2_decay_events(filtered_events, n_clusters=3):
+    filtered_events = filtered_events.dropna(subset=["start_co2", "end_co2", "duration_minutes"])
     # Prepare feature vector for clustering
     assembler = VectorAssembler(inputCols=["start_co2", "end_co2", "duration_minutes"], outputCol="features")
     filtered_events = assembler.transform(filtered_events)
@@ -129,8 +139,11 @@ def cluster_co2_decay_events(filtered_events, n_clusters=3):
     return filtered_events
 
 # Calculate average minimum CO2 value for each cluster
+#def calculate_average_min_co2(filtered_events):
+#    return filtered_events.groupby("cluster")["end_co2"].mean()
+
 def calculate_average_min_co2(filtered_events):
-    return filtered_events.groupby("cluster")["end_co2"].mean()
+    return filtered_events.groupBy("cluster").agg(avg("end_co2").alias("avg_end_co2"))
 
 # Calculate decay constant lambda for each row
 def calculate_decay_constant(filtered_events):
@@ -155,19 +168,42 @@ def calculate_decay_constants(df, filtered_events):
 
     return df
 
-def plot_co2_decay_events(df):
+def fix_date_time(date_str):
+    # Handle "24:00:00" by replacing with "00:00:00" and adding a day
+    date_str = date_str.strip()
+    full_date_str = f"2024/{date_str}"
+    if "24:00:00" in full_date_str:
+        date_fixed = full_date_str.replace("24:00:00", "00:00:00")
+        dt = pd.to_datetime(date_fixed, format="%Y/%m/%d  %H:%M:%S")
+        return dt + pd.Timedelta(days=1)  # Move to next day
+    else:
+        return pd.to_datetime(full_date_str, format="%Y/%m/%d  %H:%M:%S")
+    
+def plot_co2_decay_events(spark_df):
+    # Remove empty event_id values
+    spark_df = spark_df.dropna(subset=["event_id"])
+
+    # Convert PySpark DataFrame to Pandas for plotting
+    df = spark_df.select("event_id", "Datetime", "Zone Air CO2 Concentration", "start_co2").toPandas()
+    df = df.dropna(subset=["event_id", "start_co2"])
+    df['Datetime'] = df['Datetime'].apply(fix_date_time)
     plt.figure(figsize=(12, 6))
+
     for event_id, group in df.groupby("event_id"):
-        if not group["start_co2"].isna().all():  # Ensure event has valid data
-            plt.plot(group["date"], group["co2"], label=f"Event {int(event_id)}", alpha=0.6)
+        plt.plot(group["Datetime"], group["Zone Air CO2 Concentration"], label=f"Event {int(event_id)}", alpha=0.6)
     
     plt.xlabel("Time")
     plt.ylabel("CO2 Concentration (ppm)")
     plt.title("CO2 Decay Events Over Time")
+    
     plt.legend(loc="upper left", bbox_to_anchor=(1, 1), fontsize="small", ncol=1, frameon=False)
     plt.grid(True)
-    pairplot_output_path = "cluster_decay_pairplot.png"
-    plt.savefig(pairplot_output_path)
+    plt.tight_layout() 
+    
+    # Save the plot
+    plot_output_path = "cluster_decay_plot.png"
+    plt.savefig(plot_output_path)
+    print(f"Plot saved as {plot_output_path}")
     
     
 data_df = read_data_table(input_file_path)
@@ -188,15 +224,20 @@ df = df.filter((col("_volume") >= 60) & (col("_volume") <= 65))
 
 
 df, decay_events = process_co2_decay_events(df)
-df.show(10)
 clustered_events = cluster_co2_decay_events(decay_events)
 avg_min_co2 = calculate_average_min_co2(clustered_events)
 clustered_events = calculate_decay_constant(clustered_events)
 df_with_constants = calculate_decay_constants(df, clustered_events)
 
-df_with_constants.to_csv("CO2_decay_with_constants.csv",sep=";", index=False)
+#df_with_constants.to_csv("CO2_decay_with_constants.csv",sep=";", index=False)
+output_dir = "CO2_decay_with_constants"
+df_with_constants.coalesce(1).write.csv(output_dir, sep=";", header=True, mode="overwrite")
+csv_file = [f for f in os.listdir(output_dir) if f.startswith("part-")][0]
+shutil.move(os.path.join(output_dir, csv_file), "CO2_decay_with_constants.csv")
+shutil.rmtree(output_dir)
 print("Average Minimum CO2 per Cluster:")
-print(avg_min_co2)
+avg_min_co2.show(10)
 print("Decay Constants:")
+clustered_events.show(10)
 print(clustered_events[["cluster", "decay_constant"]])
 plot_co2_decay_events(df_with_constants)
