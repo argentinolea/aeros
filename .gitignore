@@ -2,3 +2,6 @@ dataset_meeting_rooms.zip
 dataset_office_rooms.h5
 dataset_office_rooms.zip
 output_low_variance_clusters.parquet/*
+ML_real/output_low_variance_clusters.csv
+decay-real/CO2_decay_with_constants.csv
+ML_simulated/output_low_variance_clusters.parquet/*
