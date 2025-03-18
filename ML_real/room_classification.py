@@ -12,17 +12,9 @@ from scipy.cluster.hierarchy import linkage, dendrogram
 
 def assign_to_cluster(kmeans_model, scaler_model, clustering_assembler, sensor_data):
     sensor_data["CO2_variance"] = 0.0  # Add a default CO2 variance column
-    print("sensor_data")
-    print(sensor_data)
     assembled_sensor_data = clustering_assembler.transform(sensor_data)
-    print("assembled_sensor_data")
-    print(assembled_sensor_data)
     scaled_sensor_data = scaler_model.transform(assembled_sensor_data)
-    print("scaled_sensor_data")
-    print(scaled_sensor_data)
     cluster = kmeans_model.predict(scaled_sensor_data)
-    print("cluster")
-    print(cluster)
     return cluster[0], scaled_sensor_data
 
 def train_regression_for_cluster(cluster_id, cluster_ranges, merged_df):
@@ -44,10 +36,10 @@ def train_regression_for_cluster(cluster_id, cluster_ranges, merged_df):
     model.fit(X, y)
     return model
 
-def validate_sensor_data(lr_model, sensor_data):
-    if not isinstance(sensor_data, pd.DataFrame):
-        sensor_data = pd.DataFrame(sensor_data, columns=["temperature", "humidity", "ventilation rate", "volume", "co2"])
-    X = sensor_data[["temperature", "humidity", "ventilation rate", "volume"]]
+def validate_sensor_data(lr_model, sensor_data,assembler):
+    subfeatures_df = sensor_data[["temperature", "humidity", "ventilation rate", "volume"]]
+    assembled_sensor_data = assembler.transform(subfeatures_df)
+    X = pd.DataFrame(assembled_sensor_data, columns=["temperature", "humidity", "ventilation rate", "volume"])  
     predictions = lr_model.predict(X)
     
     sensor_data["prediction"] = predictions
@@ -58,9 +50,16 @@ def validate_sensor_data(lr_model, sensor_data):
 def process_sensor_data(sensor_data, kmeans_model, scaler, assembler, cluster_ranges, merged_df):
     sensor_cluster_id, scaled_sensor_data = assign_to_cluster(kmeans_model, scaler, assembler, sensor_data)
     print(f"Sensor data is assigned to cluster: {sensor_cluster_id}")
-    print(scaler.inverse_transform(scaled_sensor_data))
+    #print(scaler.inverse_transform(scaled_sensor_data))
     lr_model = train_regression_for_cluster(sensor_cluster_id, cluster_ranges, merged_df)
-    validation_results = validate_sensor_data(lr_model, scaled_sensor_data)
+    assembler_validate = ColumnTransformer(
+        transformers=[
+            ("features", FunctionTransformer(lambda x: x, validate=False), 
+            ["temperature", "humidity", "ventilation rate", "volume"]) 
+        ]
+    )
+    assembler_validate.fit(merged_df)
+    validation_results = validate_sensor_data(lr_model, sensor_data, assembler_validate)
     
     return validation_results
 
@@ -96,8 +95,6 @@ variance_df = merged_df.groupby([
     CO2_variance=("co2", "var")
 ).dropna().reset_index()
 
-print("variance_df")
-print(variance_df)
 feature_columns = ["temperature", "humidity", "ventilation rate", "volume", "CO2_variance"]
 variance_df = variance_df.astype(float)
 # Define a column transformer to concatenate the selected features
@@ -107,14 +104,9 @@ assembler = ColumnTransformer(
          feature_columns)
     ]
 )
-print(variance_df.head())
-print("Before transformation:")
-print(variance_df[feature_columns].head())
 assembled_df=variance_df
 # Transform the DataFrame
 assembled_df["features"] = list(assembler.fit_transform(variance_df))
-print("After transformation:")
-print(assembled_df[:5])
 
 # Standardize the features
 features_matrix = np.vstack(variance_df["features"])
@@ -126,8 +118,6 @@ scaled_features = scaler_model.fit_transform(features_matrix)
 scaled_df = assembled_df
 scaled_df["scaledFeatures"] = list(scaled_features)
 
-print("scaled_df")
-print(scaled_df)
 # PCA and hierarchical clustering
 from sklearn.decomposition import PCA
 pca = PCA(n_components=3)
@@ -148,14 +138,10 @@ kmeans = KMeans(n_clusters=4, random_state=42)
 kmeans_model = kmeans.fit(scaled_features)
 clustered_df = scaled_df
 clustered_df["prediction"] = kmeans_model.predict(scaled_features)
-print("clustered_df")
-print(clustered_df)
 
 
 # Select specific columns
 final_df = clustered_df[["temperature", "humidity", "ventilation rate", "volume", "CO2_variance", "prediction"]]
-print("final_df")
-print(final_df)
 final_df = final_df[(final_df["CO2_variance"] > 0) &
                     (final_df["CO2_variance"] < 20) &
                     (final_df["temperature"] > 20) &
@@ -175,7 +161,7 @@ cluster_ranges = final_df.groupby("prediction").agg(
     min_ventilation=("ventilation rate", "min"),
     max_ventilation=("ventilation rate", "max"),
     min_humidity=("humidity", "min"),
-    max_humidity=("humidity", "max"),
+    max_humidity=("humidity", "max")
 ).reset_index()
 
 print("cluster_ranges")
@@ -186,14 +172,13 @@ print(cluster_ranges)
 output_path = "output_low_variance_clusters.csv"
 # Save clustered data to CSV
 variance_df.to_csv(output_path, index=False)
-print("Clustered data saved")
 
-sensor_data = pd.DataFrame([
-    {"temperature": 20.35, "humidity": 43.0, "ventilation rate": 0.25, "volume": 12.0, "co2": 1400.0}
+sensor_data_1 = pd.DataFrame([
+    {"temperature": 22.35, "humidity": 43.5, "ventilation rate": 0.25, "volume": 12.0, "co2": 1200.0}
 ])
-
-validation_results = process_sensor_data(
-    sensor_data=sensor_data,
+print(sensor_data_1)
+validation_results_1 = process_sensor_data(
+    sensor_data=sensor_data_1,
     kmeans_model=kmeans_model,
     scaler=scaler_model,
     assembler=assembler,
@@ -201,7 +186,23 @@ validation_results = process_sensor_data(
     merged_df=merged_df
 )
 
-print(validation_results)
+print(validation_results_1)
+
+sensor_data_2 = pd.DataFrame([
+    {"temperature": 22.35, "humidity": 43.5, "ventilation rate": 0.25, "volume": 12.0, "co2": 5000.0}
+])
+print(sensor_data_2)
+
+validation_results_2 = process_sensor_data(
+    sensor_data=sensor_data_2,
+    kmeans_model=kmeans_model,
+    scaler=scaler_model,
+    assembler=assembler,
+    cluster_ranges=cluster_ranges,
+    merged_df=merged_df
+)
+
+print(validation_results_2)
 df = pd.read_csv(output_path)
 
 df = df[[
@@ -211,6 +212,11 @@ df = df[[
     "CO2_variance",
     "prediction"
 ]]
+
+filtered_df = df[df["prediction"] == 3]
+print(filtered_df)
+count = len(filtered_df)
+print(f"Number of rows: {count}")
 # Visualization
 sns.pairplot(
     df,
