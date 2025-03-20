@@ -75,7 +75,7 @@ def plot_entropy(timestamps, entropy_results):
     
     
 if __name__ == "__main__":
-    csv_file = "../capture/31010902_fixed_all_features.csv"  # Change to your actual file path
+    csv_file = "../capture/10022002_fixed_all_features.csv"  # Change to your actual file path
     entropy_values = process_co2_entropy(csv_file)
     
     print("Shannon Entropy of CO₂ levels:")

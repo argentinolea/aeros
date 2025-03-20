@@ -81,6 +81,6 @@ if __name__ == "__main__":
     print("Shannon Entropy of CO₂ levels:")
     print(f"presence_analysis=True: {entropy_values.get('True', 'No data')}")
     print(f"presence_analysis=False: {entropy_values.get('False', 'No data')}")
-    timestamps, entropy_values_plot = process_co2_entropy_by_day(csv_file,"2025-02-04")
+    timestamps, entropy_values_plot = process_co2_entropy_by_day(csv_file,"2025-02-17")
     plot_entropy(timestamps, entropy_values_plot)
     

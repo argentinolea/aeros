@@ -192,8 +192,8 @@ final_df = final_df.filter(
     (col("Zone Mean Air Temperature") < 40) & 
     (col("Zone Air Relative Humidity") > 20) & 
     (col("Zone Air Relative Humidity") < 80) & 
-    (col("_volume") > 20) & 
-    (col("_volume") < 300)
+    (col("_volume") > 55) & 
+    (col("_volume") < 75)
 )
 
 cluster_ranges = final_df.groupBy("prediction").agg(
@@ -223,7 +223,7 @@ distinct_values_df = final_df.groupBy("prediction").agg(
 distinct_values_df.show()
 
 sensor_data = spark.createDataFrame([
-    {"Zone Mean Air Temperature": 22.5, "Zone Air Relative Humidity": 55.0, "Ventilation": 0.10, "_volume": 50.0, "Zone Air CO2 Concentration": 420.0}
+    {"Zone Mean Air Temperature": 22.35, "Zone Air Relative Humidity": 43.5, "Ventilation": 0.25, "_volume": 65.0, "Zone Air CO2 Concentration": 1150.0}
 ])
 
 validation_results = process_sensor_data(
@@ -238,8 +238,9 @@ validation_results = process_sensor_data(
 validation_results.show()
 
 sensor_data = spark.createDataFrame([
-    {"Zone Mean Air Temperature": 22.5, "Zone Air Relative Humidity": 55.0, "Ventilation": 0.10, "_volume": 50.0, "Zone Air CO2 Concentration": 1160.0}
+    {"Zone Mean Air Temperature": 22.35, "Zone Air Relative Humidity": 43.5, "Ventilation": 0.25, "_volume": 65.0, "Zone Air CO2 Concentration": 5000.0}
 ])
+
 
 
 validation_results = process_sensor_data(

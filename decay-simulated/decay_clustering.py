@@ -1,7 +1,8 @@
 from pyspark.ml.clustering import KMeans
 from pyspark.ml.feature import VectorAssembler
-from pyspark.sql.functions import col, log,trim, unix_timestamp, lag, when, count, sum as ps_sum, first, last, min as ps_min, max as ps_max, avg, lit, round as ps_round
+from pyspark.sql.functions import to_timestamp, concat,col, date_format, log,trim, unix_timestamp, lag, when, count, sum as ps_sum, first, last, min as ps_min, max as ps_max, avg, lit, round as ps_round
 from pyspark.sql import SparkSession, Window
+from pyspark.sql.types import StringType
 import pandas as pd
 import matplotlib.pyplot as plt
 import h5py
@@ -18,7 +19,7 @@ spark = SparkSession.builder \
     .getOrCreate()
 spark.sparkContext.setLogLevel("ERROR")
 
-input_file_path = "../dataset_office_rooms.h5"
+input_file_path = "../coddora/dataset_office_rooms.h5"
 
 def read_data_table(file_path, key="data/table", start_row=0, num_records=1000000):
     with h5py.File(file_path, 'r') as h5f:
@@ -191,6 +192,13 @@ def plot_co2_decay_events(spark_df):
     df = spark_df.select("event_id", "Datetime", "Zone Air CO2 Concentration", "start_co2").toPandas()
     df = df.dropna(subset=["event_id", "start_co2"])
     df['Datetime'] = df['Datetime'].apply(fix_date_time)
+    print(df['Datetime'])
+    start_date = "2024-11-01"
+    end_date = "2024-11-15"
+
+    # Filter DataFrame based on the date range
+    df = df[(df["Datetime"] >= start_date) & (df["Datetime"] <= end_date)]
+
     plt.figure(figsize=(12, 6))
 
     for event_id, group in df.groupby("event_id"):
@@ -223,7 +231,8 @@ df = df.withColumn("Zone Mean Air Temperature", ps_round(col("Zone Mean Air Temp
                      .withColumn("Zone Air Relative Humidity", ps_round(col("Zone Air Relative Humidity"), 2)) \
                      .withColumn("_volume", ps_round(col("_volume"), 2))
        
-df = df.filter((col("_volume") >= 60) & (col("_volume") <= 65))
+df = df.filter((col("_volume") >= 55) & (col("_volume") <= 75))
+#df = df.filter((col("Ventilation") >= 0.20) & (col("Ventilation") <= 0.50))
 
 
 
@@ -245,3 +254,25 @@ print("Decay Constants:")
 clustered_events.show(10)
 print(clustered_events[["cluster", "decay_constant"]])
 plot_co2_decay_events(df_with_constants)
+
+required_columns = ["Occupancy", "BinaryOccupancy", "Datetime", "Zone Air CO2 Concentration", 
+                    "Zone Mean Air Temperature", "Zone Air Relative Humidity", "_volume", "Ventilation"]
+
+CO2_decay_filtered_dir = "CO2_decay_filtered"
+# Filter rows where "presence_analysis" is not "Ignore"
+df_filtered = df[df["presence_analysis"] != "Ignore"][required_columns]
+df_filtered = df_filtered.withColumn("formatted_datetime",
+                   date_format(to_timestamp(concat(lit("2024/"), df_filtered["Datetime"]), "yyyy/ MM/dd  HH:mm:ss"), 
+                               "yyyy-MM-dd HH:mm:ss.SSSSSS"))
+df_filtered = df_filtered.withColumn(
+    "Millis",
+    (unix_timestamp(date_format(col("formatted_datetime"), "yyyy-MM-dd HH:mm:ss"), "yyyy-MM-dd HH:mm:ss") * 1000).cast("long")
+)
+df_filtered = df_filtered.select("Occupancy", "BinaryOccupancy", "formatted_datetime", "Millis", "Zone Air CO2 Concentration",
+                    "Zone Mean Air Temperature", "Zone Air Relative Humidity", "_volume", "Ventilation")
+df_filtered = df_filtered.withColumn("BinaryOccupancy", when(df_filtered["BinaryOccupancy"] == 1, True).otherwise(False))
+
+df_filtered.coalesce(1).write.csv(CO2_decay_filtered_dir, sep=";", header=True, mode="overwrite")
+csv_file = [f for f in os.listdir(CO2_decay_filtered_dir) if f.startswith("part-")][0]
+shutil.move(os.path.join(CO2_decay_filtered_dir, csv_file), "CO2_decay_filtered.csv")
+shutil.rmtree(CO2_decay_filtered_dir)

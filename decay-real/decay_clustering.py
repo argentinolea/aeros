@@ -38,7 +38,7 @@ def process_co2_decay_events(file_path):
         (event_summary["start_co2"] > event_summary["end_co2"]) & (event_summary["duration_minutes"] > 40) & (event_summary["duration_minutes"] < 360)
     ]
     # Define a threshold to exclude fake decay events
-    threshold_factor = 1.1  # Allows a 20% increase from min_co2 but rejects anything higher
+    threshold_factor = 1.1  # Allows a 10% increase from min_co2 but rejects anything higher
     
     # Apply updated decay event conditions (Monotonicity in Decay)
     filtered_events = filtered_events[
@@ -112,17 +112,22 @@ def plot_co2_decay_events(df):
     
     
 # Usage
-file_path = "../capture/31010902_fixed_all_features.csv"  # Change to your actual file path
+file_path = "../capture/10022002_fixed_all_features.csv"  # Change to your actual file path
 df = pd.read_csv(file_path, delimiter=";")
 df, decay_events = process_co2_decay_events(file_path)
 clustered_events = cluster_co2_decay_events(decay_events)
 avg_min_co2 = calculate_average_min_co2(clustered_events)
 clustered_events = calculate_decay_constant(clustered_events)
 df_with_constants = calculate_decay_constants(df, clustered_events)
-
-df_with_constants.to_csv("CO2_decay_with_constants.csv",sep=";", index=False)
 print("Average Minimum CO2 per Cluster:")
 print(avg_min_co2)
 print("Decay Constants:")
 print(clustered_events[["cluster", "decay_constant"]])
 plot_co2_decay_events(df_with_constants)
+df_with_constants["date"] = df_with_constants["date"].dt.strftime("%Y-%m-%d %H:%M:%S.%f")
+df_with_constants.to_csv("CO2_decay_with_constants.csv",sep=";", index=False)
+
+required_columns = ["#occupants", "presence", "date", "millis", "co2", 
+                    "temperature", "humidity", "volume", "ventilation rate"]
+df_filtered = df_with_constants[df_with_constants["presence_analysis"] != "Ignore"][required_columns]
+df_filtered.to_csv("CO2_decay_filtered.csv",sep=";", index=False)

@@ -80,7 +80,7 @@ def train_regression_for_cluster(cluster_id,cluster_ranges,merged_df):
     return model
 
 # Load data from CSV
-input_file_path = "../capture/10022002_fixed_all_features.csv"
+input_file_path = "../decay-real/CO2_decay_filtered.csv"
 data_df = pd.read_csv(input_file_path, delimiter=";")
 # Feature selection and rounding
 merged_df = data_df[[
