@@ -1,4 +1,4 @@
-Occupancy;BinaryOccupancy;formatted_datetime;Millis;Zone Air CO2 Concentration;Zone Mean Air Temperature;Zone Air Relative Humidity;_volume;Ventilation
+#occupants;presence;date;millis;co2;temperature;humidity;volume;ventilation rate
 0.5;true;2024-02-03 06:54:00.000000;1706939640000;997.92;17.83;21.13;68.56;0.44
 0.5;true;2024-02-03 06:55:00.000000;1706939700000;978.02;17.18;21.61;68.56;0.44
 0.5;true;2024-02-03 06:56:00.000000;1706939760000;957.27;16.57;22.01;68.56;0.44

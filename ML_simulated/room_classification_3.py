@@ -145,6 +145,17 @@ variance_df = merged_df.groupBy(
     variance("Zone Air CO2 Concentration").alias("CO2_variance")
 ).filter(col("CO2_variance").isNotNull()) 
 
+variance_df = variance_df.filter(
+    (col("CO2_variance") > 0) &
+    (col("CO2_variance") < 20) & 
+    (col("Zone Mean Air Temperature") > 20) & 
+    (col("Zone Mean Air Temperature") < 40) & 
+    (col("Zone Air Relative Humidity") > 20) & 
+    (col("Zone Air Relative Humidity") < 80) & 
+    (col("_volume") > 55) & 
+    (col("_volume") < 75)
+)
+
 assembler = VectorAssembler(
     inputCols=["Zone Mean Air Temperature", "Zone Air Relative Humidity", "Ventilation", "_volume", "CO2_variance"],
     outputCol="features"
@@ -163,7 +174,7 @@ scaled_features_df = pd.DataFrame(scaled_features)
 
 from sklearn.decomposition import PCA
 pca = PCA(n_components=3)
-reduced_data = pca.fit_transform(scaled_features_df.sample(n=10000, random_state=42))
+reduced_data = pca.fit_transform(scaled_features_df)
 linkage_matrix = linkage(reduced_data, method='ward')
 
 # Plot dendrogram
@@ -184,16 +195,6 @@ print("clustered_df")
 clustered_df.show()
 final_df = clustered_df.select(
     "Zone Mean Air Temperature", "Zone Air Relative Humidity", "Ventilation", "_volume", "CO2_variance", "prediction"
-)
-final_df = final_df.filter(
-    (col("CO2_variance") > 0) &
-    (col("CO2_variance") < 20) & 
-    (col("Zone Mean Air Temperature") > 20) & 
-    (col("Zone Mean Air Temperature") < 40) & 
-    (col("Zone Air Relative Humidity") > 20) & 
-    (col("Zone Air Relative Humidity") < 80) & 
-    (col("_volume") > 55) & 
-    (col("_volume") < 75)
 )
 
 cluster_ranges = final_df.groupBy("prediction").agg(

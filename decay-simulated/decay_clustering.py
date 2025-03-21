@@ -272,6 +272,16 @@ df_filtered = df_filtered.select("Occupancy", "BinaryOccupancy", "formatted_date
                     "Zone Mean Air Temperature", "Zone Air Relative Humidity", "_volume", "Ventilation")
 df_filtered = df_filtered.withColumn("BinaryOccupancy", when(df_filtered["BinaryOccupancy"] == 1, True).otherwise(False))
 
+df_filtered = df_filtered.withColumnRenamed("Occupancy", "#occupants") \
+                         .withColumnRenamed("BinaryOccupancy", "presence") \
+                         .withColumnRenamed("formatted_datetime", "date") \
+                         .withColumnRenamed("Millis", "millis") \
+                         .withColumnRenamed("Zone Air CO2 Concentration", "co2") \
+                         .withColumnRenamed("Zone Mean Air Temperature", "temperature") \
+                         .withColumnRenamed("Zone Air Relative Humidity", "humidity") \
+                         .withColumnRenamed("_volume", "volume") \
+                         .withColumnRenamed("Ventilation", "ventilation rate")
+                         
 df_filtered.coalesce(1).write.csv(CO2_decay_filtered_dir, sep=";", header=True, mode="overwrite")
 csv_file = [f for f in os.listdir(CO2_decay_filtered_dir) if f.startswith("part-")][0]
 shutil.move(os.path.join(CO2_decay_filtered_dir, csv_file), "CO2_decay_filtered.csv")

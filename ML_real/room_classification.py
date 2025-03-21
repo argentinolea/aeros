@@ -95,6 +95,15 @@ variance_df = merged_df.groupby([
     CO2_variance=("co2", "var")
 ).dropna().reset_index()
 
+variance_df = variance_df[(variance_df["CO2_variance"] > 0) &
+                    (variance_df["CO2_variance"] < 20) &
+                    (variance_df["temperature"] > 20) &
+                    (variance_df["temperature"] < 40) &
+                    (variance_df["humidity"] > 20) &
+                    (variance_df["humidity"] < 80) &
+                    (variance_df["volume"] > 55) &
+                    (variance_df["volume"] < 75)]
+
 feature_columns = ["temperature", "humidity", "ventilation rate", "volume", "CO2_variance"]
 variance_df = variance_df.astype(float)
 # Define a column transformer to concatenate the selected features
@@ -142,14 +151,6 @@ clustered_df["prediction"] = kmeans_model.predict(scaled_features)
 
 # Select specific columns
 final_df = clustered_df[["temperature", "humidity", "ventilation rate", "volume", "CO2_variance", "prediction"]]
-final_df = final_df[(final_df["CO2_variance"] > 0) &
-                    (final_df["CO2_variance"] < 20) &
-                    (final_df["temperature"] > 20) &
-                    (final_df["temperature"] < 40) &
-                    (final_df["humidity"] > 20) &
-                    (final_df["humidity"] < 80) &
-                    (final_df["volume"] > 55) &
-                    (final_df["volume"] < 75)]
 
 
 # Extract cluster ranges

@@ -80,14 +80,25 @@ def train_regression_for_cluster(cluster_id,cluster_ranges,merged_df):
     return model
 
 # Load data from CSV
-input_file_path = "../decay-simulated/CO2_decay_filtered.csv"
-data_df = pd.read_csv(input_file_path, delimiter=";")
+input_file_path_real = "../decay-real/CO2_decay_filtered.csv"
+data_df_real = pd.read_csv(input_file_path_real, delimiter=";")
 # Feature selection and rounding
-merged_df = data_df[[
+merged_df_real = data_df_real[[
     "temperature", "co2", "humidity",
     "volume", "ventilation rate"
 ]].round(2)
 
+# Load data from CSV
+input_file_path_sim = "../decay-simulated/CO2_decay_filtered.csv"
+data_df_sim = pd.read_csv(input_file_path_sim, delimiter=";")
+# Feature selection and rounding
+merged_df_sim = data_df_sim[[
+    "temperature", "co2", "humidity",
+    "volume", "ventilation rate"
+]].round(2)
+
+
+merged_df = pd.concat([merged_df_real, merged_df_sim], ignore_index=True)
 # Calculate variance
 variance_df = merged_df.groupby([
     "temperature", "humidity", "ventilation rate", "volume"
@@ -98,13 +109,11 @@ variance_df = merged_df.groupby([
 variance_df = variance_df[(variance_df["CO2_variance"] > 0) &
                     (variance_df["CO2_variance"] < 20) &
                     (variance_df["temperature"] > 20) &
-                    (variance_df["temperature"] < 28) &
+                    (variance_df["temperature"] < 25) &
                     (variance_df["humidity"] > 20) &
                     (variance_df["humidity"] < 80) &
                     (variance_df["volume"] > 55) &
                     (variance_df["volume"] < 75)]
-
-print(variance_df)
 
 feature_columns = ["temperature", "humidity", "ventilation rate", "volume", "CO2_variance"]
 variance_df = variance_df.astype(float)
