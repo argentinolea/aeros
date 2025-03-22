@@ -9,6 +9,8 @@ import seaborn as sns
 from mpl_toolkits.mplot3d import Axes3D
 import h5py
 from scipy.cluster.hierarchy import linkage, dendrogram
+from pyspark.ml.evaluation import RegressionEvaluator
+from sklearn.metrics import mean_absolute_error, mean_squared_error
 
 
 def assign_to_cluster(kmeans_model, scaler_model, clustering_assembler, sensor_data):
@@ -81,7 +83,16 @@ def process_sensor_data(sensor_data, kmeans_model, scaler_model, assembler, clus
     print(f"Sensor data is assigned to cluster: {sensor_cluster_id}")
     lr_model = train_regression_for_cluster(sensor_cluster_id, cluster_ranges, merged_df)
     validation_results = validate_sensor_data(lr_model, scaled_sensor_data)
-    
+    evaluator = RegressionEvaluator(labelCol="Zone Air CO2 Concentration", predictionCol="prediction")
+
+    mae = evaluator.setMetricName("mae").evaluate(validation_results)
+    mse = evaluator.setMetricName("mse").evaluate(validation_results)
+    rmse = evaluator.setMetricName("rmse").evaluate(validation_results)
+
+    print("📐 Regression Metrics (Spark):")
+    print(f"   MAE  (Mean Absolute Error)      : {mae:.2f} ppm")
+    print(f"   MSE  (Mean Squared Error)       : {mse:.2f} ppm²")
+    print(f"   RMSE (Root Mean Squared Error)  : {rmse:.2f} ppm")
     return validation_results
 
 spark = SparkSession.builder \
@@ -223,6 +234,8 @@ distinct_values_df = final_df.groupBy("prediction").agg(
 
 distinct_values_df.show()
 
+print("\n##############################Start-Linear regression##############################")
+print("\n########Sensor 1:\n")
 sensor_data = spark.createDataFrame([
     {"Zone Mean Air Temperature": 22.35, "Zone Air Relative Humidity": 43.5, "Ventilation": 0.25, "_volume": 65.0, "Zone Air CO2 Concentration": 1150.0}
 ])
@@ -238,6 +251,7 @@ validation_results = process_sensor_data(
 
 validation_results.show()
 
+print("\n########Sensor 2:\n")
 sensor_data = spark.createDataFrame([
     {"Zone Mean Air Temperature": 22.35, "Zone Air Relative Humidity": 43.5, "Ventilation": 0.25, "_volume": 65.0, "Zone Air CO2 Concentration": 5000.0}
 ])
@@ -255,6 +269,7 @@ validation_results = process_sensor_data(
 
 validation_results.show()
 
+print("\n##############################Stop-Linear regression##############################")
 spark.stop()
 
 df = pd.read_parquet(output_path)

@@ -9,6 +9,7 @@ from sklearn.preprocessing import FunctionTransformer
 from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import LinearRegression
 from scipy.cluster.hierarchy import linkage, dendrogram
+from sklearn.metrics import mean_absolute_error, mean_squared_error
 
 def assign_to_cluster(kmeans_model, scaler_model, clustering_assembler, sensor_data):
     sensor_data["CO2_variance"] = 0.0  # Add a default CO2 variance column
@@ -60,7 +61,17 @@ def process_sensor_data(sensor_data, kmeans_model, scaler, assembler, cluster_ra
     )
     assembler_validate.fit(merged_df)
     validation_results = validate_sensor_data(lr_model, sensor_data, assembler_validate)
-    
+    y_true = validation_results["co2"]
+    y_pred = validation_results["prediction"]
+
+    mae = mean_absolute_error(y_true, y_pred)
+    mse = mean_squared_error(y_true, y_pred)
+    rmse = np.sqrt(mse)
+
+    print(f"📐 Regression Metrics:")
+    print(f"   MAE  (Mean Absolute Error)      : {mae:.2f} ppm")
+    print(f"   MSE  (Mean Squared Error)       : {mse:.2f} ppm²")
+    print(f"   RMSE (Root Mean Squared Error)  : {rmse:.2f} ppm")
     return validation_results
 
 # Train a regression model for a given cluster
@@ -176,6 +187,8 @@ output_path = "output_low_variance_clusters.csv"
 # Save clustered data to CSV
 variance_df.to_csv(output_path, index=False)
 
+print("\n##############################Start-Linear regression##############################")
+print("\n########Sensor 1:\n")
 sensor_data_1 = pd.DataFrame([
     {"temperature": 22.35, "humidity": 43.5, "ventilation rate": 0.25, "volume": 65.0, "co2": 1150.0}
 ])
@@ -191,6 +204,7 @@ validation_results_1 = process_sensor_data(
 
 print(validation_results_1)
 
+print("\n########Sensor 2:\n")
 sensor_data_2 = pd.DataFrame([
     {"temperature": 22.35, "humidity": 43.5, "ventilation rate": 0.25, "volume": 65.0, "co2": 5000.0}
 ])
@@ -206,6 +220,8 @@ validation_results_2 = process_sensor_data(
 )
 
 print(validation_results_2)
+
+print("\n##############################Stop-Linear regression##############################")
 df = pd.read_csv(output_path)
 
 df = df[[
@@ -217,9 +233,9 @@ df = df[[
 ]]
 
 filtered_df = df[df["prediction"] == 3]
-print(filtered_df)
+#print(filtered_df)
 count = len(filtered_df)
-print(f"Number of rows: {count}")
+#print(f"Number of rows: {count}")
 # Visualization
 sns.pairplot(
     df,

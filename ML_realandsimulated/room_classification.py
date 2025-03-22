@@ -9,6 +9,7 @@ from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import LinearRegression
 from scipy.cluster.hierarchy import linkage, dendrogram
 from sklearn.decomposition import PCA
+from sklearn.metrics import mean_absolute_error, mean_squared_error
 
 ##############################
 # FUNZIONI DI SUPPORTO
@@ -86,7 +87,17 @@ def process_sensor_data(sensor_data, kmeans_model, scaler, assembler, cluster_ra
     )
     assembler_validate.fit(real_df)
     validation_results = validate_sensor_data(lr_model, sensor_data, assembler_validate)
-    
+    y_true = validation_results["co2"]
+    y_pred = validation_results["prediction"]
+
+    mae = mean_absolute_error(y_true, y_pred)
+    mse = mean_squared_error(y_true, y_pred)
+    rmse = np.sqrt(mse)
+
+    print(f"📐 Regression Metrics:")
+    print(f"   MAE  (Mean Absolute Error)      : {mae:.2f} ppm")
+    print(f"   MSE  (Mean Squared Error)       : {mse:.2f} ppm²")
+    print(f"   RMSE (Root Mean Squared Error)  : {rmse:.2f} ppm")
     return validation_results
 
 ##############################
@@ -196,7 +207,9 @@ sensor_data_1 = pd.DataFrame([{
     "temperature": 22.35, "humidity": 43.5, 
     "ventilation rate": 0.25, "volume": 65.0, "co2": 1150.0
 }])
-print("Sensor data 1:")
+
+print("\n##############################Start-Linear regression##############################")
+print("\n########Sensor 1:\n")
 print(sensor_data_1)
 
 # Passiamo come "merged_df" i dati reali per il fine-tuning
@@ -208,14 +221,14 @@ validation_results_1 = process_sensor_data(
     cluster_ranges=cluster_ranges,
     real_df=merged_df_real  # Solo dati reali per fine-tuning
 )
-print("Validation results 1:")
+
 print(validation_results_1)
 
 sensor_data_2 = pd.DataFrame([{
     "temperature": 22.35, "humidity": 43.5, 
     "ventilation rate": 0.25, "volume": 65.0, "co2": 5000.0
 }])
-print("Sensor data 2:")
+print("\n########Sensor 2:\n")
 print(sensor_data_2)
 
 validation_results_2 = process_sensor_data(
@@ -226,9 +239,9 @@ validation_results_2 = process_sensor_data(
     cluster_ranges=cluster_ranges,
     real_df=merged_df_real  # Fine-tuning su dati reali
 )
-print("Validation results 2:")
-print(validation_results_2)
 
+print(validation_results_2)
+print("\n##############################Stop-Linear regression##############################")
 ##############################
 # 5. VISUALIZZAZIONE
 ##############################
@@ -238,8 +251,8 @@ df_clusters = df_clusters[["temperature", "humidity", "volume", "CO2_variance"]]
 # Se volessimo visualizzare un cluster specifico, ad esempio quello con prediction == 3
 # (Notare che qui df_clusters non contiene la colonna "prediction", ma possiamo usare final_df se necessario)
 filtered_df = final_df[final_df["prediction"] == 3]
-print(filtered_df)
-print(f"Number of rows: {len(filtered_df)}")
+#print(filtered_df)
+#print(f"Number of rows: {len(filtered_df)}")
 
 # Pairplot
 sns.pairplot(
