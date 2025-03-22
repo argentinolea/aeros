@@ -73,13 +73,13 @@ def process_co2_entropy_by_day(csv_file,day):
     return timestamps, entropy_results
 
 def plot_entropy(timestamps, entropy_results):
-    """Plot continuous entropy trends over time for presence_analysis and absence on 01/02/2025."""
+    """Plot continuous entropy trends over time for presence_analysis and absence on 11/12/2024."""
     plt.figure(figsize=(12, 6))
     plt.plot(timestamps, entropy_results['1'], label='presence_analysis=True', linestyle='-', marker='', linewidth=2)
     plt.plot(timestamps, entropy_results['0'], label='presence_analysis=False', linestyle='-', marker='', linewidth=2)
     plt.xlabel('Time')
     plt.ylabel('Shannon Entropy')
-    plt.title('Shannon Entropy of CO₂ Levels on 01/02/2025')
+    plt.title('Shannon Entropy of CO₂ Levels on 11/12/2024')
     plt.legend()
     plt.grid()
     plt.xticks(rotation=45)

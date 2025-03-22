@@ -18,7 +18,7 @@ spark = SparkSession.builder \
     .config("spark.task.maxDirectResultSize", "10M") \
     .getOrCreate()
 
-input_file_path = "../dataset_office_rooms.h5"
+input_file_path = "../coddora/dataset_office_rooms.h5"
 
 def read_data_table(file_path, key="data/table", start_row=0, num_records=1000000):
     with h5py.File(file_path, 'r') as h5f:
@@ -163,7 +163,7 @@ df = df.withColumn("Zone Mean Air Temperature", ps_round(col("Zone Mean Air Temp
                      .withColumn("Zone Air Relative Humidity", ps_round(col("Zone Air Relative Humidity"), 2)) \
                      .withColumn("_volume", ps_round(col("_volume"), 2))
        
-df = df.filter((col("_volume") >= 60) & (col("_volume") <= 65))
+df = df.filter((col("_volume") >= 55) & (col("_volume") <= 75))
 
 variance_df = df.groupBy(
     "Zone Mean Air Temperature", "Zone Air Relative Humidity", "Ventilation", "_volume"
@@ -177,6 +177,6 @@ entropy_values = process_co2_entropy()
 print("Shannon Entropy of CO₂ levels:")
 print(f"Presence=True: {entropy_values.get('1', 'No data')}")
 print(f"Presence=False: {entropy_values.get('0', 'No data')}")
-timestamps, entropy_values_plot = process_co2_entropy_by_day(df,"11/26")
+timestamps, entropy_values_plot = process_co2_entropy_by_day(df,"11/12")
 print(entropy_values_plot)
 plot_entropy(timestamps, entropy_values_plot)

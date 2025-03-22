@@ -98,7 +98,7 @@ variance_df = merged_df.groupby([
 variance_df = variance_df[(variance_df["CO2_variance"] > 0) &
                     (variance_df["CO2_variance"] < 20) &
                     (variance_df["temperature"] > 20) &
-                    (variance_df["temperature"] < 28) &
+                    (variance_df["temperature"] < 25) &
                     (variance_df["humidity"] > 20) &
                     (variance_df["humidity"] < 80) &
                     (variance_df["volume"] > 55) &
