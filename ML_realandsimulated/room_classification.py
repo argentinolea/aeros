@@ -9,7 +9,37 @@ from sklearn.compose import ColumnTransformer
 from sklearn.linear_model import LinearRegression
 from scipy.cluster.hierarchy import linkage, dendrogram
 from sklearn.decomposition import PCA
-from sklearn.metrics import mean_absolute_error, mean_squared_error
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.model_selection import train_test_split
+
+def lr_metrics(merged_df):
+    features = [ "temperature", "humidity", "volume", "ventilation rate"]
+    X = merged_df[features]
+    y = merged_df["co2"]
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+    model = LinearRegression()
+    model.fit(X_train, y_train)
+    y_pred = model.predict(X_test)
+    error = abs(y_test - y_pred)
+    mean_error = error.mean()
+    std_error = error.std()
+    # Define threshold: mean + 3 * std (99.7% confidence interval under Gaussian assumption)
+    failure_threshold = mean_error + 3 * std_error
+    failure_flags = (error > failure_threshold).astype(int)
+
+    results = X_test.copy()
+    results["actual_co2"] = y_test
+    results["predicted_co2"] = y_pred
+    mae = mean_absolute_error(y_test, y_pred)
+    mse = mean_squared_error(y_test, y_pred)
+    rmse = np.sqrt(mse)
+    r2 = r2_score(y_test, y_pred)
+
+    print(f"📐 Regression Metrics:")
+    print(f"   MAE  (Mean Absolute Error)      : {mae:.2f} ppm")
+    print(f"   MSE  (Mean Squared Error)       : {mse:.2f} ppm²")
+    print(f"   RMSE (Root Mean Squared Error)  : {rmse:.2f} ppm")
+    print(f"   R²   (Coefficient of Determination): {r2:.4f}")
 
 ##############################
 # FUNZIONI DI SUPPORTO
@@ -87,17 +117,6 @@ def process_sensor_data(sensor_data, kmeans_model, scaler, assembler, cluster_ra
     )
     assembler_validate.fit(real_df)
     validation_results = validate_sensor_data(lr_model, sensor_data, assembler_validate)
-    y_true = validation_results["co2"]
-    y_pred = validation_results["prediction"]
-
-    mae = mean_absolute_error(y_true, y_pred)
-    mse = mean_squared_error(y_true, y_pred)
-    rmse = np.sqrt(mse)
-
-    print(f"📐 Regression Metrics:")
-    print(f"   MAE  (Mean Absolute Error)      : {mae:.2f} ppm")
-    print(f"   MSE  (Mean Squared Error)       : {mse:.2f} ppm²")
-    print(f"   RMSE (Root Mean Squared Error)  : {rmse:.2f} ppm")
     return validation_results
 
 ##############################
@@ -112,6 +131,8 @@ merged_df_real = data_df_real[["temperature", "co2", "humidity", "volume", "vent
 input_file_path_sim = "../decay-simulated/CO2_decay_filtered.csv"
 data_df_sim = pd.read_csv(input_file_path_sim, delimiter=";")
 merged_df_sim = data_df_sim[["temperature", "co2", "humidity", "volume", "ventilation rate"]].round(2)
+
+merged_df = pd.concat([merged_df_real, merged_df_sim], ignore_index=True)
 
 ##############################
 # 2. PRETRAINING (SU DATI SIMULATI)
@@ -185,6 +206,8 @@ cluster_ranges = final_df.groupby("prediction").agg(
 
 print("cluster_ranges:")
 print(cluster_ranges)
+
+lr_metrics(merged_df)
 
 # Salviamo i dati clusterizzati (opzionale)
 output_path = "output_low_variance_clusters.csv"

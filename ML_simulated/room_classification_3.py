@@ -10,7 +10,51 @@ from mpl_toolkits.mplot3d import Axes3D
 import h5py
 from scipy.cluster.hierarchy import linkage, dendrogram
 from pyspark.ml.evaluation import RegressionEvaluator
-from sklearn.metrics import mean_absolute_error, mean_squared_error
+from pyspark.sql.functions import abs as spark_abs, col, mean, stddev, when
+
+def lr_metrics_spark(spark_df):
+    features = ["Zone Mean Air Temperature", "Zone Air Relative Humidity", "_volume", "Ventilation"]
+
+    # Assemble features into a single vector column
+    assembler = VectorAssembler(inputCols=features, outputCol="features")
+    df_with_features = assembler.transform(spark_df)
+
+    # Split data into train/test
+    train_df, test_df = df_with_features.randomSplit([0.7, 0.3], seed=42)
+
+    # Fit Linear Regression Model
+    lr = LinearRegression(featuresCol="features", labelCol="Zone Air CO2 Concentration", predictionCol="prediction")
+    model = lr.fit(train_df)
+
+    # Predict on test set
+    predictions = model.transform(test_df)
+
+    # Compute absolute error column
+    predictions = predictions.withColumn("error", spark_abs(col("Zone Air CO2 Concentration") - col("prediction")))
+
+    # Compute mean and stddev of error
+    stats = predictions.select(mean("error").alias("mean_error"), stddev("error").alias("std_error")).collect()[0]
+    mean_error = stats["mean_error"]
+    std_error = stats["std_error"]
+
+    # Calculate failure threshold
+    failure_threshold = mean_error + 3 * std_error
+
+    # Flag failures
+    predictions = predictions.withColumn("sensor_failure", when(col("error") > failure_threshold, 1).otherwise(0))
+
+    # Evaluate metrics
+    evaluator = RegressionEvaluator(labelCol="Zone Air CO2 Concentration", predictionCol="prediction")
+    mae = evaluator.setMetricName("mae").evaluate(predictions)
+    mse = evaluator.setMetricName("mse").evaluate(predictions)
+    rmse = evaluator.setMetricName("rmse").evaluate(predictions)
+    r2 = evaluator.setMetricName("r2").evaluate(predictions)
+
+    print("\U0001F4D0 Regression Metrics (Spark):")
+    print(f"   MAE  (Mean Absolute Error)      : {mae:.2f} ppm")
+    print(f"   MSE  (Mean Squared Error)       : {mse:.2f} ppm²")
+    print(f"   RMSE (Root Mean Squared Error)  : {rmse:.2f} ppm")
+    print(f"   R²   (Coefficient of Determination): {r2:.4f}")
 
 
 def assign_to_cluster(kmeans_model, scaler_model, clustering_assembler, sensor_data):
@@ -83,16 +127,6 @@ def process_sensor_data(sensor_data, kmeans_model, scaler_model, assembler, clus
     print(f"Sensor data is assigned to cluster: {sensor_cluster_id}")
     lr_model = train_regression_for_cluster(sensor_cluster_id, cluster_ranges, merged_df)
     validation_results = validate_sensor_data(lr_model, scaled_sensor_data)
-    evaluator = RegressionEvaluator(labelCol="Zone Air CO2 Concentration", predictionCol="prediction")
-
-    mae = evaluator.setMetricName("mae").evaluate(validation_results)
-    mse = evaluator.setMetricName("mse").evaluate(validation_results)
-    rmse = evaluator.setMetricName("rmse").evaluate(validation_results)
-
-    print("📐 Regression Metrics (Spark):")
-    print(f"   MAE  (Mean Absolute Error)      : {mae:.2f} ppm")
-    print(f"   MSE  (Mean Squared Error)       : {mse:.2f} ppm²")
-    print(f"   RMSE (Root Mean Squared Error)  : {rmse:.2f} ppm")
     return validation_results
 
 spark = SparkSession.builder \
@@ -160,7 +194,7 @@ variance_df = variance_df.filter(
     (col("CO2_variance") > 0) &
     (col("CO2_variance") < 20) & 
     (col("Zone Mean Air Temperature") > 20) & 
-    (col("Zone Mean Air Temperature") < 40) & 
+    (col("Zone Mean Air Temperature") < 25) & 
     (col("Zone Air Relative Humidity") > 20) & 
     (col("Zone Air Relative Humidity") < 80) & 
     (col("_volume") > 55) & 
@@ -233,6 +267,8 @@ distinct_values_df = final_df.groupBy("prediction").agg(
 )
 
 distinct_values_df.show()
+
+lr_metrics_spark(merged_df)
 
 print("\n##############################Start-Linear regression##############################")
 print("\n########Sensor 1:\n")
