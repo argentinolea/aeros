@@ -72,7 +72,26 @@ def plot_entropy(timestamps, entropy_results):
     pairplot_output_path = "entropy.png"
     plt.savefig(pairplot_output_path)
     
+def process_mode(csv_file):
+    """Reads a CSV file, groups CO₂ values by presence, and calculates entropy."""
+    df = pd.read_csv(csv_file, delimiter=';')
     
+    # Ensure presence column is treated as boolean
+    df['date'] = pd.to_datetime(df['date'])
+    # Group by presence
+    mode_results = {}
+    group_data = df[df['presence_analysis'] == "True"]['co2'].tolist()
+    if group_data:
+        count = Counter(group_data)
+        most_common = count.most_common(1)
+        mode_results["True"] = most_common[0][0] if most_common else None
+    group_data = df[df['presence_analysis'] == "False"]['co2'].tolist()
+    if group_data:
+        count = Counter(group_data)
+        most_common = count.most_common(1)
+        mode_results["False"] = most_common[0][0] if most_common else None
+    
+    return mode_results   
     
 if __name__ == "__main__":
     csv_file = "CO2_decay_with_constants.csv"  # Change to your actual file path
@@ -81,6 +100,10 @@ if __name__ == "__main__":
     print("Shannon Entropy of CO₂ levels:")
     print(f"presence_analysis=True: {entropy_values.get('True', 'No data')}")
     print(f"presence_analysis=False: {entropy_values.get('False', 'No data')}")
+    moda_value = process_mode(csv_file)
+    print("Moda of CO₂ levels:")
+    print(f"Presence=True: {moda_value.get('True', 'No data')}")
+    print(f"Presence=False: {moda_value.get('False', 'No data')}")
     timestamps, entropy_values_plot = process_co2_entropy_by_day(csv_file,"2025-02-17")
     plot_entropy(timestamps, entropy_values_plot)
     

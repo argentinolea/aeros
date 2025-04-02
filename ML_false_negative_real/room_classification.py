@@ -106,16 +106,16 @@ def validate_sensor_against_all_clusters(sensor_data, cluster_ranges, cluster_mo
         print(f"     CO₂ actual   : {match['co2']:.2f}")
         print(f"     CO₂ predicted: {match['lr_prediction']:.2f}")
         print(f"     Error        : {match['error']:.2f}")
-        print(f"     min_#occupants: {min_occ}")
-        print(f"     max_#occupants: {max_occ}")
+        print(f"     min_occupants_modified: {min_occ}")
+        print(f"     max_occupants_modified: {max_occ}")
         
 # Load data from CSV
-input_file_path = "../capture/10022002_fixed_all_features.csv"
-data_df = pd.read_csv(input_file_path, delimiter=";")
+input_file_path = "../co2_false_negative_real/10022002_modified.csv"
+data_df = pd.read_csv(input_file_path, delimiter=",")
 # Feature selection and rounding
 merged_df = data_df[[
     "temperature", "co2", "humidity",
-    "volume", "ventilation rate", "#occupants"
+    "volume", "ventilation rate", "occupants_modified"
 ]].round(2)
 
 
@@ -127,7 +127,7 @@ merged_df = merged_df[
                     (merged_df["volume"] > 55) &
                     (merged_df["volume"] < 75)]
 
-feature_columns = ["temperature", "humidity", "ventilation rate", "volume", "#occupants"]
+feature_columns = ["temperature", "humidity", "ventilation rate", "volume", "occupants_modified"]
 
 assembler = ColumnTransformer(
     transformers=[
@@ -159,7 +159,7 @@ cluster_models, cluster_metrics, negative_r2_clusters = train_regression_models_
 clustered_df = clustered_df[~clustered_df["prediction"].isin(negative_r2_clusters)]
 
 # Select specific columns
-final_df = clustered_df[["temperature", "humidity", "ventilation rate", "volume", "#occupants", "prediction"]]
+final_df = clustered_df[["temperature", "humidity", "ventilation rate", "volume", "occupants_modified", "prediction"]]
 
 
 # Extract cluster ranges
@@ -172,8 +172,8 @@ cluster_ranges = final_df.groupby("prediction").agg(
     max_ventilation=("ventilation rate", "max"),
     min_humidity=("humidity", "min"),
     max_humidity=("humidity", "max"),
-    min_occupants=("#occupants", "min"),
-    max_occupants=("#occupants", "max")
+    min_occupants=("occupants_modified", "min"),
+    max_occupants=("occupants_modified", "max")
 )
 
 print("cluster_ranges")
@@ -185,7 +185,7 @@ cluster_plot_df = final_df
 sns.set(style="whitegrid")
 pairplot = sns.pairplot(
     cluster_plot_df,
-    vars=["temperature", "humidity", "#occupants"],
+    vars=["temperature", "humidity", "occupants_modified"],
     hue="prediction",
     palette="tab10",
     diag_kind="kde"

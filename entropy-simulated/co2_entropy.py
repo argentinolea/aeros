@@ -8,6 +8,9 @@ import seaborn as sns
 import h5py
 from collections import Counter
 import numpy as np
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col
+from collections import Counter
 
 spark = SparkSession.builder \
     .appName("Identify CO2 Low Variance Clusters") \
@@ -64,7 +67,7 @@ def shannon_entropy_udf(values):
     total = len(values)
     probabilities = [count / total for count in counter.values()]
     entropy = -sum(p * np.log2(p) for p in probabilities if p > 0)
-    return float(entropy)  # Ensure it returns a Python float, not numpy.float64
+    return float(entropy) 
 
 def process_co2_entropy():
     entropy_results = {}
@@ -75,6 +78,34 @@ def process_co2_entropy():
     
     return entropy_results
 
+
+def process_mode_spark():
+
+    # Ensure correct types
+    #df = df.withColumn("Zone Air CO2 Concentration", col("Zone Air CO2 Concentration").cast("double"))  # Ensure co2 is numeric
+
+   # Ensure correct types
+    #df = df.filter(~col("presence_analysis").isin(["Ignore"]))  # exclude "Ignore"
+    
+    # Collect group data to driver
+    grouped = (
+        df.groupBy("BinaryOccupancy")
+          .agg(collect_list("Zone Air CO2 Concentration").alias("co2_list"))
+          .filter(col("BinaryOccupancy").isin(["0", "1"]))  # Just to be safe
+          .collect()
+    )
+    
+    mode_results = {}
+    
+    for row in grouped:
+        group_key = row["BinaryOccupancy"]
+        co2_values = row["co2_list"]
+        if co2_values:
+            count = Counter(co2_values)
+            most_common = count.most_common(1)
+            mode_results[group_key] = most_common[0][0] if most_common else None
+    
+    return mode_results
 
 def process_co2_entropy_by_day(df,day):  
     df = df.withColumn("BinaryOccupancy", col("BinaryOccupancy").cast("int"))
@@ -177,6 +208,10 @@ entropy_values = process_co2_entropy()
 print("Shannon Entropy of CO₂ levels:")
 print(f"Presence=True: {entropy_values.get('1', 'No data')}")
 print(f"Presence=False: {entropy_values.get('0', 'No data')}")
+moda_value = process_mode_spark()
+print("Moda of CO₂ levels:")
+print(f"Presence=True: {moda_value.get(True, 'No data')}")
+print(f"Presence=False: {moda_value.get(False, 'No data')}")
 timestamps, entropy_values_plot = process_co2_entropy_by_day(df,"11/12")
 print(entropy_values_plot)
 plot_entropy(timestamps, entropy_values_plot)

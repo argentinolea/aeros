@@ -17,16 +17,20 @@ def train_regression_models_by_cluster(clustered_df):
     cluster_metrics = {}
     negative_r2_clusters = []
 
-    feature_cols = ["temperature", "humidity", "ventilation rate", "volume"]
+    feature_cols = ["Zone Mean Air Temperature", "Zone Air Relative Humidity", "Ventilation", "_volume"]
     target_col = "co2"
 
     for cluster_id in clustered_df["prediction"].unique():
-        print(f"\n🔬 Training Linear Regression for Cluster {cluster_id}")
         cluster_data = clustered_df[clustered_df["prediction"] == cluster_id].copy()
 
         X = cluster_data[feature_cols]
         y = cluster_data[target_col]
 
+        if len(cluster_data) < 2:
+            print(f"⚠️ Skipping Cluster {cluster_id}: Not enough samples for training.")
+            continue
+        print(f"\n🔬 Training Linear Regression for Cluster {cluster_id}")
+        
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
 
         model = LinearRegression()
@@ -60,10 +64,10 @@ def train_regression_models_by_cluster(clustered_df):
 def validate_sensor_against_all_clusters(sensor_data, cluster_ranges, cluster_models):
     # Extract feature values from the single sensor data row
     sensor = sensor_data.iloc[0]  # safely extract scalar values
-    t = sensor["temperature"]
-    h = sensor["humidity"]
-    v = sensor["ventilation rate"]
-    vol = sensor["volume"]
+    t = sensor["Zone Mean Air Temperature"]
+    h = sensor["Zone Air Relative Humidity"]
+    v = sensor["Ventilation"]
+    vol = sensor["_volume"]
     co2 = sensor["co2"]
 
     matched_clusters = []
@@ -94,7 +98,7 @@ def validate_sensor_against_all_clusters(sensor_data, cluster_ranges, cluster_mo
         return
 
     print("✅ Sensor matched the following clusters:")
-    for match in matched_clusters:
+    for match in matched_clusters :
         if match["lr_prediction"] < 0:
             continue
 
@@ -106,28 +110,28 @@ def validate_sensor_against_all_clusters(sensor_data, cluster_ranges, cluster_mo
         print(f"     CO₂ actual   : {match['co2']:.2f}")
         print(f"     CO₂ predicted: {match['lr_prediction']:.2f}")
         print(f"     Error        : {match['error']:.2f}")
-        print(f"     min_#occupants: {min_occ}")
-        print(f"     max_#occupants: {max_occ}")
+        print(f"     min_occupants_modified: {min_occ}")
+        print(f"     max_occupants_modified: {max_occ}")
         
 # Load data from CSV
-input_file_path = "../capture/10022002_fixed_all_features.csv"
-data_df = pd.read_csv(input_file_path, delimiter=";")
+input_file_path = "../co2_false_negative_sim/65m3_export_false_negative.csv"
+data_df = pd.read_csv(input_file_path, delimiter=",")
 # Feature selection and rounding
 merged_df = data_df[[
-    "temperature", "co2", "humidity",
-    "volume", "ventilation rate", "#occupants"
+    "Zone Mean Air Temperature", "co2", "Zone Air Relative Humidity",
+    "_volume", "Ventilation", "occupants_modified"
 ]].round(2)
 
 
 merged_df = merged_df[
-                    (merged_df["temperature"] > 20) &
-                    (merged_df["temperature"] < 40) &
-                    (merged_df["humidity"] > 20) &
-                    (merged_df["humidity"] < 80) &
-                    (merged_df["volume"] > 55) &
-                    (merged_df["volume"] < 75)]
+                    (merged_df["Zone Mean Air Temperature"] > 20) &
+                    (merged_df["Zone Mean Air Temperature"] < 40) &
+                    (merged_df["Zone Air Relative Humidity"] > 20) &
+                    (merged_df["Zone Air Relative Humidity"] < 80) &
+                    (merged_df["_volume"] > 55) &
+                    (merged_df["_volume"] < 75)]
 
-feature_columns = ["temperature", "humidity", "ventilation rate", "volume", "#occupants"]
+feature_columns = ["Zone Mean Air Temperature", "Zone Air Relative Humidity", "Ventilation", "_volume", "occupants_modified"]
 
 assembler = ColumnTransformer(
     transformers=[
@@ -159,21 +163,21 @@ cluster_models, cluster_metrics, negative_r2_clusters = train_regression_models_
 clustered_df = clustered_df[~clustered_df["prediction"].isin(negative_r2_clusters)]
 
 # Select specific columns
-final_df = clustered_df[["temperature", "humidity", "ventilation rate", "volume", "#occupants", "prediction"]]
+final_df = clustered_df[["Zone Mean Air Temperature", "Zone Air Relative Humidity", "Ventilation", "_volume", "occupants_modified", "prediction"]]
 
 
 # Extract cluster ranges
 cluster_ranges = final_df.groupby("prediction").agg(
-    min_temperature=("temperature", "min"),
-    max_temperature=("temperature", "max"),
-    min_volume=("volume", "min"),
-    max_volume=("volume", "max"),
-    min_ventilation=("ventilation rate", "min"),
-    max_ventilation=("ventilation rate", "max"),
-    min_humidity=("humidity", "min"),
-    max_humidity=("humidity", "max"),
-    min_occupants=("#occupants", "min"),
-    max_occupants=("#occupants", "max")
+    min_temperature=("Zone Mean Air Temperature", "min"),
+    max_temperature=("Zone Mean Air Temperature", "max"),
+    min_volume=("_volume", "min"),
+    max_volume=("_volume", "max"),
+    min_ventilation=("Ventilation", "min"),
+    max_ventilation=("Ventilation", "max"),
+    min_humidity=("Zone Air Relative Humidity", "min"),
+    max_humidity=("Zone Air Relative Humidity", "max"),
+    min_occupants=("occupants_modified", "min"),
+    max_occupants=("occupants_modified", "max")
 )
 
 print("cluster_ranges")
@@ -182,10 +186,12 @@ print(cluster_ranges)
 # Convert Spark DataFrame to Pandas
 cluster_plot_df = final_df
 
+cluster_plot_df = cluster_plot_df[cluster_plot_df.groupby("prediction")["prediction"].transform("count") >= 2]
+
 sns.set(style="whitegrid")
 pairplot = sns.pairplot(
     cluster_plot_df,
-    vars=["temperature", "humidity", "#occupants"],
+    vars=["Zone Mean Air Temperature", "Zone Air Relative Humidity", "occupants_modified"],
     hue="prediction",
     palette="tab10",
     diag_kind="kde"
@@ -200,12 +206,12 @@ plt.show()
 sensor_assembler = ColumnTransformer(
     transformers=[
         ("features", FunctionTransformer(lambda x: x, validate=False), 
-        ["temperature", "humidity", "ventilation rate", "volume"]) 
+        ["Zone Mean Air Temperature", "Zone Air Relative Humidity", "Ventilation", "_volume"]) 
     ]
 )
     
 sensor_data_1 = pd.DataFrame([
-    {"temperature": 22.35, "humidity": 43.5, "ventilation rate": 0.25, "volume": 65.0, "co2": 1150.0}
+    {"Zone Mean Air Temperature": 20.15, "Zone Air Relative Humidity": 26.5, "Ventilation": 0.00, "_volume": 68.56, "co2": 1150.0}
 ])
 
 
@@ -216,7 +222,7 @@ validate_sensor_against_all_clusters(
 )
 
 sensor_data_2 = pd.DataFrame([
-    {"temperature": 22.35, "humidity": 43.5, "ventilation rate": 0.25, "volume": 65.0, "co2": 5000.0}
+    {"Zone Mean Air Temperature": 20.15, "Zone Air Relative Humidity": 26.5, "Ventilation": 0.00, "_volume": 68.56, "co2": 5000.0}
 ])
 
 

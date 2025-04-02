@@ -12,125 +12,107 @@ from scipy.cluster.hierarchy import linkage, dendrogram
 from pyspark.ml.evaluation import RegressionEvaluator
 from pyspark.sql.functions import abs as spark_abs, col, mean, stddev, when
 
-def lr_metrics_spark(spark_df):
-    features = ["Zone Mean Air Temperature", "Zone Air Relative Humidity", "_volume", "Ventilation"]
+def train_regression_models_by_cluster(clustered_df):
+    cluster_models = {}
+    cluster_metrics = {}
+    negative_r2_clusters = []
 
-    # Assemble features into a single vector column
-    assembler = VectorAssembler(inputCols=features, outputCol="features")
-    df_with_features = assembler.transform(spark_df)
+    feature_cols = ["Zone Mean Air Temperature", "Zone Air Relative Humidity", "Ventilation", "_volume"]
+    assembler = VectorAssembler(inputCols=feature_cols, outputCol="features")
 
-    # Split data into train/test
-    train_df, test_df = df_with_features.randomSplit([0.7, 0.3], seed=42)
+    # Loop over each cluster ID
+    for cluster_id in clustered_df.select("prediction").distinct().rdd.flatMap(lambda x: x).collect():
+        print(f"\n\U0001F52C Training Linear Regression for Cluster {cluster_id}")
+        cluster_data = clustered_df.filter(col("prediction") == cluster_id)
+        if "features" in cluster_data.columns:
+            cluster_data = cluster_data.drop("features")
+            
+        cluster_data = assembler.transform(cluster_data)
+        train_df, test_df = cluster_data.randomSplit([0.7, 0.3], seed=42)
 
-    # Fit Linear Regression Model
-    lr = LinearRegression(featuresCol="features", labelCol="Zone Air CO2 Concentration", predictionCol="prediction")
-    model = lr.fit(train_df)
+        lr = LinearRegression(featuresCol="features", labelCol="Zone Air CO2 Concentration", predictionCol="lr_prediction")
+        model = lr.fit(train_df)
 
-    # Predict on test set
-    predictions = model.transform(test_df)
+        predictions = model.transform(test_df)
 
-    # Compute absolute error column
-    predictions = predictions.withColumn("error", spark_abs(col("Zone Air CO2 Concentration") - col("prediction")))
+        evaluator = RegressionEvaluator(
+            labelCol="Zone Air CO2 Concentration",
+            predictionCol="lr_prediction"
+        )
 
-    # Compute mean and stddev of error
-    stats = predictions.select(mean("error").alias("mean_error"), stddev("error").alias("std_error")).collect()[0]
-    mean_error = stats["mean_error"]
-    std_error = stats["std_error"]
+        mae = evaluator.setMetricName("mae").evaluate(predictions)
+        mse = evaluator.setMetricName("mse").evaluate(predictions)
+        rmse = evaluator.setMetricName("rmse").evaluate(predictions)
+        r2 = evaluator.setMetricName("r2").evaluate(predictions)
+        if(r2 < 0):
+            negative_r2_clusters.append(cluster_id)
 
-    # Calculate failure threshold
-    failure_threshold = mean_error + 3 * std_error
+        print(f"   MAE  (Mean Absolute Error)      : {mae:.2f} ppm")
+        print(f"   MSE  (Mean Squared Error)       : {mse:.2f} ppm²")
+        print(f"   RMSE (Root Mean Squared Error)  : {rmse:.2f} ppm")
+        print(f"   R²   (Coefficient of Determination): {r2:.4f}")
 
-    # Flag failures
-    predictions = predictions.withColumn("sensor_failure", when(col("error") > failure_threshold, 1).otherwise(0))
+        cluster_models[cluster_id] = model
+        cluster_metrics[cluster_id] = {
+            "MAE": mae,
+            "MSE": mse,
+            "RMSE": rmse,
+            "R2": r2
+        }
 
-    # Evaluate metrics
-    evaluator = RegressionEvaluator(labelCol="Zone Air CO2 Concentration", predictionCol="prediction")
-    mae = evaluator.setMetricName("mae").evaluate(predictions)
-    mse = evaluator.setMetricName("mse").evaluate(predictions)
-    rmse = evaluator.setMetricName("rmse").evaluate(predictions)
-    r2 = evaluator.setMetricName("r2").evaluate(predictions)
+    return cluster_models, cluster_metrics, negative_r2_clusters
 
-    print("\U0001F4D0 Regression Metrics (Spark):")
-    print(f"   MAE  (Mean Absolute Error)      : {mae:.2f} ppm")
-    print(f"   MSE  (Mean Squared Error)       : {mse:.2f} ppm²")
-    print(f"   RMSE (Root Mean Squared Error)  : {rmse:.2f} ppm")
-    print(f"   R²   (Coefficient of Determination): {r2:.4f}")
+def validate_sensor_against_all_clusters(sensor_data, cluster_ranges, cluster_models, sensor_assembler):
+    sensor_row = sensor_data.first()
+    t = sensor_row["Zone Mean Air Temperature"]
+    h = sensor_row["Zone Air Relative Humidity"]
+    v = sensor_row["Ventilation"]
+    vol = sensor_row["_volume"]
+    co2 = sensor_row["Zone Air CO2 Concentration"]
 
+    matched_clusters = []
 
-def assign_to_cluster(kmeans_model, scaler_model, clustering_assembler, sensor_data):
-    sensor_data = sensor_data.withColumn("CO2_variance", lit(0.0)) 
-    assembled_sensor_data = clustering_assembler.transform(sensor_data)
-    scaled_sensor_data = scaler_model.transform(assembled_sensor_data)
-    cluster = kmeans_model.transform(scaled_sensor_data)
-    print("cluster")
-    cluster.show()
-    return cluster.select("prediction").first()["prediction"], scaled_sensor_data
+    for row in cluster_ranges.collect():
+        cluster_id = row["prediction"]
 
+        if (
+            row["min_temperature"] <= t <= row["max_temperature"] and
+            row["min_humidity"] <= h <= row["max_humidity"] and
+            row["min_ventilation"] <= v <= row["max_ventilation"] and
+            row["min_volume"] <= vol <= row["max_volume"]
+        ):
+            model = cluster_models.get(cluster_id)
+            if model:
+                assembled = sensor_assembler.transform(sensor_data)
+                predicted = model.setPredictionCol("lr_prediction").transform(assembled)
 
-def train_regression_for_cluster(cluster_id, cluster_ranges, merged_df):
-    cluster_range = cluster_ranges.filter(col("prediction") == cluster_id).first()
-    min_temperature = cluster_range["min_temperature"]
-    max_temperature = cluster_range["max_temperature"]
-    min_volume = cluster_range["min_volume"]
-    max_volume = cluster_range["max_volume"]
-    min_ventilation = cluster_range["min_ventilation"]
-    max_ventilation = cluster_range["max_ventilation"]
-    min_humidity = cluster_range["min_humidity"]
-    max_humidity = cluster_range["max_humidity"]
+                predicted = predicted.withColumn(
+                    "error", spark_abs(col("Zone Air CO2 Concentration") - col("lr_prediction"))
+                ).withColumn("cluster_id", lit(cluster_id))
 
-    cluster_data = merged_df.filter(
-        (col("Zone Mean Air Temperature") >= min_temperature) &
-        (col("Zone Mean Air Temperature") <= max_temperature) &
-        (col("_volume") >= min_volume) &
-        (col("_volume") <= max_volume) &
-        (col("Ventilation") >= min_ventilation) &
-        (col("Ventilation") <= max_ventilation) &
-        (col("Zone Air Relative Humidity") >= min_humidity) &
-        (col("Zone Air Relative Humidity") <= max_humidity)
-    )
-    
-    assembler = VectorAssembler(
-        inputCols=["Zone Mean Air Temperature", "Zone Air Relative Humidity", "Ventilation", "_volume"],
-        outputCol="features"
-    )
-    
-    assembled_data = assembler.transform(cluster_data)
+                matched_clusters.append(predicted.select(
+                    "Zone Air CO2 Concentration", "lr_prediction", "error", "cluster_id"
+                ).first())
 
-    training_data, test_data = assembled_data.randomSplit([0.7, 0.3], seed=42)
+    if not matched_clusters:
+        print("❌ No matching cluster found for sensor data.")
+        return
 
-    # Fit the Linear Regression model on the training data
-    lr = LinearRegression(featuresCol="features", labelCol="Zone Air CO2 Concentration", regParam=0.1)
-    lr_model = lr.fit(training_data)
-
-    return lr_model
-
-def validate_sensor_data(lr_model, sensor_data):
-    # Check if "features" column exists and rename it to avoid conflicts
-    if "features" in sensor_data.columns:
-        sensor_data = sensor_data.withColumnRenamed("features", "existing_features")
-
-    assembler = VectorAssembler(
-        inputCols=["Zone Mean Air Temperature", "Zone Air Relative Humidity", "Ventilation", "_volume"],
-        outputCol="features"
-    )
-    assembled_sensor_data = assembler.transform(sensor_data)
-
-    predictions = lr_model.transform(assembled_sensor_data)
-
-    validation_results = predictions.withColumn(
-        "error", col("Zone Air CO2 Concentration") - col("prediction")
-    )
-    return validation_results
-
-def process_sensor_data(sensor_data, kmeans_model, scaler_model, assembler, cluster_ranges, merged_df):
-    sensor_cluster_id, scaled_sensor_data = assign_to_cluster(kmeans_model, scaler_model, assembler, sensor_data)
-    print(f"Sensor data is assigned to cluster: {sensor_cluster_id}")
-    lr_model = train_regression_for_cluster(sensor_cluster_id, cluster_ranges, merged_df)
-    validation_results = validate_sensor_data(lr_model, scaled_sensor_data)
-    return validation_results
+    print("✅ Sensor matched the following clusters:")
+    for match in matched_clusters:
+        if match["lr_prediction"] < 0:
+            continue 
+        min_occ = cluster_ranges.filter(col("prediction") == match['cluster_id']).select("min_#occupants").first()["min_#occupants"]
+        max_occ = cluster_ranges.filter(col("prediction") == match['cluster_id']).select("max_#occupants").first()["max_#occupants"]    
+        print(f"  Cluster {match['cluster_id']}:")
+        print(f"     CO₂ actual   : {match['Zone Air CO2 Concentration']:.2f}")
+        print(f"     CO₂ predicted: {match['lr_prediction']:.2f}")
+        print(f"     Error        : {match['error']:.2f}")
+        print(f"     min_#occupants: {min_occ}")
+        print(f"     max_#occupants: {max_occ}")
 
 spark = SparkSession.builder \
-    .appName("Identify CO2 Low Variance Clusters") \
+    .appName("Identify CO2 Clusters") \
     .master("spark://192.168.1.120:7077") \
     .config("spark.sql.execution.arrow.pyspark.enabled", "true") \
     .config("spark.driver.memory", "8g") \
@@ -181,18 +163,13 @@ merged_df = merged_df.withColumn("Zone Mean Air Temperature", ps_round(col("Zone
                      .withColumn("Zone Air CO2 Concentration", ps_round(col("Zone Air CO2 Concentration"), 2)) \
                      .withColumn("Zone Air Relative Humidity", ps_round(col("Zone Air Relative Humidity"), 2)) \
                      .withColumn("_volume", ps_round(col("_volume"), 2))
+merged_df = merged_df.withColumn("#occupants", ps_round(col("maxOccupants")*col("Occupancy"), 2))
        
                     
 print(merged_df.head(10))
-variance_df = merged_df.groupBy(
-    "Zone Mean Air Temperature", "Zone Air Relative Humidity", "Ventilation", "_volume"
-).agg(
-    variance("Zone Air CO2 Concentration").alias("CO2_variance")
-).filter(col("CO2_variance").isNotNull()) 
 
-variance_df = variance_df.filter(
-    (col("CO2_variance") > 0) &
-    (col("CO2_variance") < 20) & 
+merged_df = merged_df.filter(
+    (col("Zone Air CO2 Concentration") > 300) & 
     (col("Zone Mean Air Temperature") > 20) & 
     (col("Zone Mean Air Temperature") < 25) & 
     (col("Zone Air Relative Humidity") > 20) & 
@@ -200,12 +177,10 @@ variance_df = variance_df.filter(
     (col("_volume") > 55) & 
     (col("_volume") < 75)
 )
-
-assembler = VectorAssembler(
-    inputCols=["Zone Mean Air Temperature", "Zone Air Relative Humidity", "Ventilation", "_volume", "CO2_variance"],
-    outputCol="features"
-)
-assembled_df = assembler.transform(variance_df)
+occupant_assembler = VectorAssembler(inputCols=[
+    "Zone Mean Air Temperature", "Zone Air Relative Humidity", "Ventilation", "_volume", "#occupants"
+], outputCol="features")
+assembled_df = occupant_assembler.transform(merged_df)
 
 print("assembled_df")
 assembled_df.show()
@@ -217,29 +192,16 @@ scaled_df.show()
 scaled_features = scaled_df.select("scaledFeatures").rdd.map(lambda row: row.scaledFeatures.toArray()).collect()
 scaled_features_df = pd.DataFrame(scaled_features)
 
-from sklearn.decomposition import PCA
-pca = PCA(n_components=3)
-reduced_data = pca.fit_transform(scaled_features_df)
-linkage_matrix = linkage(reduced_data, method='ward')
-
-# Plot dendrogram
-plt.figure(figsize=(12, 8))
-dendrogram(linkage_matrix, truncate_mode="level", p=5)  # Adjust truncate_mode/p for clarity
-plt.title("Hierarchical Clustering Dendrogram")
-plt.xlabel("Sample Index")
-plt.ylabel("Distance")
-dendrogram_output_path = "dendrogram.png"
-plt.savefig(dendrogram_output_path)
-print(f"Dendrogram plot saved to {dendrogram_output_path}")
-print("scaled_df")
-scaled_df.show()
-kmeans = KMeans(featuresCol="scaledFeatures", k=4, seed=42)
+kmeans = KMeans(featuresCol="scaledFeatures", k=6, seed=42)
 kmeans_model = kmeans.fit(scaled_df)
 clustered_df = kmeans_model.transform(scaled_df)
 print("clustered_df")
 clustered_df.show()
+cluster_models, cluster_metrics, negative_r2_clusters = train_regression_models_by_cluster(clustered_df)
+clustered_df = clustered_df.filter(~col("prediction").isin(negative_r2_clusters))
+
 final_df = clustered_df.select(
-    "Zone Mean Air Temperature", "Zone Air Relative Humidity", "Ventilation", "_volume", "CO2_variance", "prediction"
+    "Zone Mean Air Temperature", "Zone Air Relative Humidity", "Ventilation", "_volume", "#occupants", "prediction"
 )
 
 cluster_ranges = final_df.groupBy("prediction").agg(
@@ -250,113 +212,73 @@ cluster_ranges = final_df.groupBy("prediction").agg(
     ps_min("Ventilation").alias("min_ventilation"),
     ps_max("Ventilation").alias("max_ventilation"),
     ps_min("Zone Air Relative Humidity").alias("min_humidity"),
-    ps_max("Zone Air Relative Humidity").alias("max_humidity")
+    ps_max("Zone Air Relative Humidity").alias("max_humidity"),
+    ps_min("#occupants").alias("min_#occupants"),
+    ps_max("#occupants").alias("max_#occupants")
 )
 
 cluster_ranges.show()
 
-output_path = "output_low_variance_clusters.parquet"
-final_df.write.parquet(output_path, mode="overwrite")
-
-distinct_values_df = final_df.groupBy("prediction").agg(
-    collect_set("Zone Mean Air Temperature").alias("Distinct Temperatures"),
-    collect_set("Zone Air Relative Humidity").alias("Distinct Humidities"),
-    collect_set("Ventilation").alias("Distinct Ventilation"),
-    collect_set("_volume").alias("Distinct Volumes"),
-    collect_set("CO2_variance").alias("Distinct CO2 Variance")
-)
-
-distinct_values_df.show()
-
-lr_metrics_spark(merged_df)
-
-print("\n##############################Start-Linear regression##############################")
-print("\n########Sensor 1:\n")
-sensor_data = spark.createDataFrame([
-    {"Zone Mean Air Temperature": 22.35, "Zone Air Relative Humidity": 43.5, "Ventilation": 0.25, "_volume": 65.0, "Zone Air CO2 Concentration": 1150.0}
-])
-
-validation_results = process_sensor_data(
-    sensor_data=sensor_data,
-    kmeans_model=kmeans_model,
-    scaler_model=scaler_model,
-    assembler=assembler,
-    cluster_ranges=cluster_ranges,
-    merged_df=merged_df
-)
-
-validation_results.show()
-
-print("\n########Sensor 2:\n")
-sensor_data = spark.createDataFrame([
-    {"Zone Mean Air Temperature": 22.35, "Zone Air Relative Humidity": 43.5, "Ventilation": 0.25, "_volume": 65.0, "Zone Air CO2 Concentration": 5000.0}
-])
-
-
-
-validation_results = process_sensor_data(
-    sensor_data=sensor_data,
-    kmeans_model=kmeans_model,
-    scaler_model=scaler_model,
-    assembler=assembler,
-    cluster_ranges=cluster_ranges,
-    merged_df=merged_df
-)
-
-validation_results.show()
-
-print("\n##############################Stop-Linear regression##############################")
-spark.stop()
-
-df = pd.read_parquet(output_path)
-
-df = df[[
-    "Zone Mean Air Temperature",
-    "Zone Air Relative Humidity",
-    "_volume",
-    "CO2_variance",
+# Convert Spark DataFrame to Pandas
+cluster_plot_df = final_df.select(
+    "Zone Mean Air Temperature", 
+    "Zone Air Relative Humidity", 
+    "#occupants", 
     "prediction"
-]]
+).dropna().toPandas()
 
-
+sns.set(style="whitegrid")
 pairplot = sns.pairplot(
-    df,
-    vars=["Zone Mean Air Temperature", "Zone Air Relative Humidity", "_volume", "CO2_variance"],
+    cluster_plot_df,
+    vars=["Zone Mean Air Temperature", "Zone Air Relative Humidity", "#occupants"],
     hue="prediction",
     palette="tab10",
     diag_kind="kde"
 )
-pairplot.fig.suptitle("Cluster Visualization", y=1.02)
+pairplot.fig.suptitle("Cluster Visualization by Environmental Features and Occupancy", y=1.02)
+
+# Save the plot
+pairplot.savefig("cluster_pairplot_temperature_humidity_occupants.png")
+plt.show()
 
 
-pairplot_output_path = "cluster_pairplot.png"
-pairplot.savefig(pairplot_output_path)
-print(f"Pairplot saved to {pairplot_output_path}")
+sensor_data = spark.createDataFrame([
+    {
+        "Zone Mean Air Temperature": 22.5,
+        "Zone Air Relative Humidity": 45.0,
+        "Ventilation": 0.25,
+        "_volume": 65.0,
+        "Zone Air CO2 Concentration": 1200.0
+    }
+])
 
-
-fig = plt.figure(figsize=(10, 8))
-ax = fig.add_subplot(111, projection='3d')
-
-
-scatter = ax.scatter(
-    df["Zone Mean Air Temperature"],
-    df["Zone Air Relative Humidity"],
-    df["_volume"],
-    c=df["prediction"],
-    cmap="tab10",
-    s=50 
+# Use same assembler used in model training (without #occupants!)
+sensor_assembler = VectorAssembler(
+    inputCols=["Zone Mean Air Temperature", "Zone Air Relative Humidity", "Ventilation", "_volume"],
+    outputCol="features"
 )
 
-ax.set_xlabel("Zone Mean Air Temperature")
-ax.set_ylabel("Zone Air Relative Humidity")
-ax.set_zlabel("Volume")
-ax.set_title("3D Cluster Visualization")
+validate_sensor_against_all_clusters(
+    sensor_data=sensor_data,
+    cluster_ranges=cluster_ranges,
+    cluster_models=cluster_models,
+    sensor_assembler=sensor_assembler
+)
 
-legend1 = ax.legend(*scatter.legend_elements(), title="Clusters")
-ax.add_artist(legend1)
+sensor_data = spark.createDataFrame([
+    {
+        "Zone Mean Air Temperature": 22.5,
+        "Zone Air Relative Humidity": 45.0,
+        "Ventilation": 0.25,
+        "_volume": 65.0,
+        "Zone Air CO2 Concentration": 5000.0
+    }
+])
 
-plot3d_output_path = "cluster_3d_plot.png"
-plt.savefig(plot3d_output_path)
-print(f"3D plot saved to {plot3d_output_path}")
 
-plt.close(fig)
+validate_sensor_against_all_clusters(
+    sensor_data=sensor_data,
+    cluster_ranges=cluster_ranges,
+    cluster_models=cluster_models,
+    sensor_assembler=sensor_assembler
+)

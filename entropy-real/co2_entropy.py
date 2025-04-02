@@ -28,6 +28,24 @@ def process_co2_entropy(csv_file):
     
     return entropy_results
 
+def process_mode(csv_file):
+    """Reads a CSV file, groups CO₂ values by presence, and calculates entropy."""
+    df = pd.read_csv(csv_file, delimiter=';')
+    
+    # Ensure presence column is treated as boolean
+    df['date'] = pd.to_datetime(df['date'])
+    df['presence'] = df['presence'].astype(bool)
+    
+    # Group by presence
+    mode_results = {}
+    for presence_value in [True, False]:
+        group_data = df[df['presence'] == presence_value]['co2'].tolist()
+        if group_data:
+            count = Counter(group_data)
+            most_common = count.most_common(1)
+            mode_results[presence_value] = most_common[0][0] if most_common else None
+    
+    return mode_results
 
 def process_co2_entropy_by_day(csv_file,day):
     """Reads a CSV file, filters data for 01/02/2025, and calculates entropy over time."""
@@ -81,6 +99,11 @@ if __name__ == "__main__":
     print("Shannon Entropy of CO₂ levels:")
     print(f"Presence=True: {entropy_values.get(True, 'No data')}")
     print(f"Presence=False: {entropy_values.get(False, 'No data')}")
+    
+    moda_value = process_mode(csv_file)
+    print("Moda of CO₂ levels:")
+    print(f"Presence=True: {moda_value.get(True, 'No data')}")
+    print(f"Presence=False: {moda_value.get(False, 'No data')}")
     timestamps, entropy_values_plot = process_co2_entropy_by_day(csv_file,"2025-02-01")
     plot_entropy(timestamps, entropy_values_plot)
     
