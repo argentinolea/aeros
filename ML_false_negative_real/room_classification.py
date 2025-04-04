@@ -150,7 +150,7 @@ scaled_df["scaledFeatures"] = list(scaled_features)
 
 # Apply KMeans
 # Apply KMeans clustering
-kmeans = KMeans(n_clusters=6, random_state=42)
+kmeans = KMeans(n_clusters=4, random_state=42)
 kmeans_model = kmeans.fit(scaled_features)
 clustered_df = scaled_df
 clustered_df["prediction"] = kmeans_model.predict(scaled_features)
