@@ -11,14 +11,6 @@ import h5py
 from scipy.cluster.hierarchy import linkage, dendrogram
 from pyspark.ml.evaluation import RegressionEvaluator
 from pyspark.sql.functions import abs as spark_abs, col, mean, stddev, when
-        
-# Load data from CSV
-input_file_path = "../co2_false_negative_sim/65m3_export_false_negative.csv"
-data_df = pd.read_csv(input_file_path, delimiter=",")
-# Feature selection and rounding
-merged_df = data_df[[
-    "co2",  "occupants_modified"
-]].round(2)
 
 spark = SparkSession.builder \
     .appName("Identify CO2 Clusters") \
