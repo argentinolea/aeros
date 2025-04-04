@@ -80,14 +80,6 @@ def process_co2_entropy():
 
 
 def process_mode_spark():
-
-    # Ensure correct types
-    #df = df.withColumn("Zone Air CO2 Concentration", col("Zone Air CO2 Concentration").cast("double"))  # Ensure co2 is numeric
-
-   # Ensure correct types
-    #df = df.filter(~col("presence_analysis").isin(["Ignore"]))  # exclude "Ignore"
-    
-    # Collect group data to driver
     grouped = (
         df.groupBy("BinaryOccupancy")
           .agg(collect_list("Zone Air CO2 Concentration").alias("co2_list"))
@@ -116,26 +108,19 @@ def process_co2_entropy_by_day(df,day):
     df = df.withColumn("TimeWindow", 
                     (floor(unix_timestamp(col("FullDatetime"), "yyyy MM/dd  HH:mm:ss") / 600) * 60)
                     )
-    #df_debug = df.filter(col("BinaryOccupancy") == '1') 
-    # Debugging: Print some results
-    #df_debug.select("Zone Air CO2 Concentration", "FullDatetime", "TimeWindow", "BinaryOccupancy").show(10, truncate=False)
     df = df.orderBy("Datetime")
 
     entropy_udf = udf(shannon_entropy_udf, DoubleType())
 
-    # Group by BinaryOccupancy and collect CO2 values
     df_grouped = df.groupBy(col("TimeWindow"), col("BinaryOccupancy")) \
                    .agg(collect_list("Zone Air CO2 Concentration").alias("co2_values"))
 
-    # Apply the entropy function
     df_entropy = df_grouped.withColumn("entropy", entropy_udf(col("co2_values")))
 
-    # Collect results
     results = df_entropy.select("TimeWindow", "BinaryOccupancy", "entropy").collect()
 
-    # Convert results to dictionary format
     timestamps = []
-    entropy_results = {"1": [], "0": []}  # Presence as binary
+    entropy_results = {"1": [], "0": []}
 
     for row in results:
         timestamps.append(row["TimeWindow"])
@@ -145,8 +130,6 @@ def process_co2_entropy_by_day(df,day):
 
 def plot_entropy(timestamps, entropy_results):
     """Plot continuous entropy trends over time for presence and absence on 26/11/2024."""
-    
-    # Ensure entropy_results['1'] and entropy_results['0'] are lists of the same length as timestamps
     entropy_results['1'] = entropy_results.get('1', [])
     entropy_results['0'] = entropy_results.get('0', [])
     
@@ -155,10 +138,8 @@ def plot_entropy(timestamps, entropy_results):
     if isinstance(entropy_results['0'], float):
         entropy_results['0'] = [entropy_results['0']]
 
-    # Fill missing values with None to align with timestamps
     max_length = len(timestamps)
     
-    # Ensure both lists are of equal length
     entropy_results['1'] += [None] * (max_length - len(entropy_results['1']))
     entropy_results['0'] += [None] * (max_length - len(entropy_results['0']))
 
@@ -174,11 +155,9 @@ def plot_entropy(timestamps, entropy_results):
     plt.grid()
     plt.xticks(rotation=45)
     
-    # Save the plot
     pairplot_output_path = "entropy.png"
     plt.savefig(pairplot_output_path)
 
-    # Show the plot
     plt.show()
     
 data_df = read_data_table(input_file_path)

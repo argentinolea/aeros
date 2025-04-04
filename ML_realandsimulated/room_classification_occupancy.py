@@ -141,68 +141,85 @@ merged_df = merged_df[
     (merged_df["volume"] > 55) & (merged_df["volume"] < 75)
 ]
 
-# Aggiungiamo la feature CO2_variance e definiamo le feature da usare
-feature_columns = ["temperature", "humidity", "ventilation rate", "volume", "occupants_modified"]
+variance_df = merged_df.groupby([
+    "occupants_modified"
+]).agg(
+    CO2_variance=("co2", "var")
+).dropna().reset_index()
+
+
+feature_columns = ["CO2_variance","occupants_modified"]
 
 assembler = ColumnTransformer(
     transformers=[
-        ("features", FunctionTransformer(lambda x: x, validate=False), feature_columns)
+        ("features", FunctionTransformer(lambda x: x, validate=False), 
+         feature_columns)
     ]
 )
-
-assembled_df=merged_df
-
-assembled_df["features"] = list(assembler.fit_transform(merged_df))
+assembled_df=variance_df
+# Transform the DataFrame
+assembled_df["features"] = list(assembler.fit_transform(variance_df))
 
 # Standardize the features
-features_matrix = np.vstack(merged_df["features"])
+features_matrix = np.vstack(variance_df["features"])
 
 # Initialize and apply StandardScaler
 scaler_model = StandardScaler()
 scaled_features = scaler_model.fit_transform(features_matrix)
+print(scaled_features)
 
 scaled_df = assembled_df
 scaled_df["scaledFeatures"] = list(scaled_features)
 
-# Applichiamo la trasformazione
-assembled_df = merged_df.copy()
-assembled_df["features"] = list(assembler.fit_transform(merged_df))
+sil_scores = []
+valid_k = []
+K = range(2, 11)
+n_samples = scaled_features.shape[0]
 
-# Standardizzazione
-features_matrix = np.vstack(assembled_df["features"])
-scaler_model = StandardScaler()
-scaled_features = scaler_model.fit_transform(features_matrix)
-assembled_df["scaledFeatures"] = list(scaled_features)
+for k in K:
+    if k >= n_samples:
+        print(f"Skipping k={k} because it's >= n_samples ({n_samples})")
+        continue
+    kmeans = KMeans(n_clusters=k, random_state=42)
+    labels = kmeans.fit_predict(scaled_features)
+    score = silhouette_score(scaled_features, labels)
+    sil_scores.append(score)
+    valid_k.append(k)
 
-# Applica KMeans (usando solo dati simulati)
+plt.plot(valid_k, sil_scores, 'go-')
+plt.xlabel('Number of clusters (k)')
+plt.ylabel('Silhouette Score')
+plt.title('Silhouette Score for different k')
+plt.grid(True)
+plt.savefig("k-values.png")
+
+# Apply KMeans
+# Apply KMeans clustering
 kmeans = KMeans(n_clusters=5, random_state=42)
 kmeans_model = kmeans.fit(scaled_features)
 clustered_df = scaled_df
 clustered_df["prediction"] = kmeans_model.predict(scaled_features)
-
 score = silhouette_score(scaled_features, kmeans_model.labels_)
 print(f"Silhouette Score: {score}")
-cluster_models, cluster_metrics, negative_r2_clusters = train_regression_models_by_cluster(clustered_df)
-clustered_df = clustered_df[~clustered_df["prediction"].isin(negative_r2_clusters)]
-
 # Select specific columns
-final_df = clustered_df[["temperature", "humidity", "ventilation rate", "volume", "occupants_modified", "prediction"]]
+final_df = clustered_df[["CO2_variance", "occupants_modified", "prediction"]]
 
-# Estraiamo gli intervalli per ciascun cluster (cluster ranges) dai dati simulati
-cluster_ranges = final_df.groupby("prediction").agg(
-    min_temperature=("temperature", "min"),
-    max_temperature=("temperature", "max"),
-    min_volume=("volume", "min"),
-    max_volume=("volume", "max"),
-    min_ventilation=("ventilation rate", "min"),
-    max_ventilation=("ventilation rate", "max"),
-    min_humidity=("humidity", "min"),
-    max_humidity=("humidity", "max"),
+merged_with_clusters = pd.merge(
+    merged_df,                     # original data with co2
+    final_df[["occupants_modified", "prediction"]],  # clustering result
+    on="occupants_modified",
+    how="inner"
+)
+
+# Extract cluster ranges
+cluster_ranges = merged_with_clusters.groupby("prediction").agg(
+    min_co2=("co2", "min"),
+    max_co2=("co2", "max"),
     min_occupants=("occupants_modified", "min"),
     max_occupants=("occupants_modified", "max")
-).reset_index()
+)
 
-print("cluster_ranges:")
+print("cluster_ranges")
 print(cluster_ranges)
 
 # Convert Spark DataFrame to Pandas
@@ -210,44 +227,31 @@ cluster_plot_df = final_df
 
 sns.set(style="whitegrid")
 pairplot = sns.pairplot(
-    cluster_plot_df,
-    vars=["temperature", "humidity", "occupants_modified"],
+    merged_with_clusters,
+    vars=["co2","occupants_modified"],
     hue="prediction",
     palette="tab10",
     diag_kind="kde"
 )
-pairplot.fig.suptitle("Cluster Visualization by Environmental Features and Occupancy", y=1.02)
+pairplot.fig.suptitle("Cluster Visualization by Occupancy", y=1.02)
 
 # Save the plot
-pairplot.savefig("cluster_pairplot_temperature_humidity_occupants.png")
+pairplot.savefig("cluster_pairplot_occupants.png")
 plt.show()
 
-
-sensor_assembler = ColumnTransformer(
-    transformers=[
-        ("features", FunctionTransformer(lambda x: x, validate=False), 
-        ["temperature", "humidity", "ventilation rate", "volume"]) 
-    ]
+plt.figure(figsize=(10, 6))
+sns.barplot(
+    data=merged_with_clusters,
+    x="occupants_modified",
+    y="co2",
+    hue="prediction",
+    palette="tab10",
+    errorbar="sd"  # show standard deviation as error bar
 )
-    
-sensor_data_1 = pd.DataFrame([
-    {"temperature": 22.35, "humidity": 43.5, "ventilation rate": 0.25, "volume": 65.0, "co2": 1150.0}
-])
-
-
-validate_sensor_against_all_clusters(
-    sensor_data=sensor_data_1,
-    cluster_ranges=cluster_ranges,
-    cluster_models=cluster_models
-)
-
-sensor_data_2 = pd.DataFrame([
-    {"temperature": 22.35, "humidity": 43.5, "ventilation rate": 0.25, "volume": 65.0, "co2": 5000.0}
-])
-
-
-validate_sensor_against_all_clusters(
-    sensor_data=sensor_data_2,
-    cluster_ranges=cluster_ranges,
-    cluster_models=cluster_models
-)
+plt.title("Average CO₂ by Occupancy and Cluster")
+plt.xlabel("Occupants")
+plt.ylabel("Average CO₂ (ppm)")
+plt.legend(title="Cluster")
+plt.tight_layout()
+plt.savefig("barplot_co2_by_occupancy_and_cluster.png")
+plt.show()

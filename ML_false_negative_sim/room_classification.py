@@ -72,7 +72,6 @@ def validate_sensor_against_all_clusters(sensor_data, cluster_ranges, cluster_mo
 
     matched_clusters = []
     feature_vector = np.array([[t, h, v, vol]])
-    print (cluster_ranges)
     for cluster_id, row in cluster_ranges.iterrows():
 
         if (

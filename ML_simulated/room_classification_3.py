@@ -192,7 +192,7 @@ scaled_df.show()
 scaled_features = scaled_df.select("scaledFeatures").rdd.map(lambda row: row.scaledFeatures.toArray()).collect()
 scaled_features_df = pd.DataFrame(scaled_features)
 
-kmeans = KMeans(featuresCol="scaledFeatures", k=6, seed=42)
+kmeans = KMeans(featuresCol="scaledFeatures", k=5, seed=42)
 kmeans_model = kmeans.fit(scaled_df)
 clustered_df = kmeans_model.transform(scaled_df)
 print("clustered_df")
@@ -244,11 +244,11 @@ plt.show()
 
 sensor_data = spark.createDataFrame([
     {
-        "Zone Mean Air Temperature": 22.5,
-        "Zone Air Relative Humidity": 45.0,
-        "Ventilation": 0.25,
-        "_volume": 65.0,
-        "Zone Air CO2 Concentration": 1200.0
+        "Zone Mean Air Temperature": 20.15,
+        "Zone Air Relative Humidity": 26.5,
+        "Ventilation": 0.00,
+        "_volume": 68.56,
+        "Zone Air CO2 Concentration": 1150.0
     }
 ])
 
@@ -267,10 +267,10 @@ validate_sensor_against_all_clusters(
 
 sensor_data = spark.createDataFrame([
     {
-        "Zone Mean Air Temperature": 22.5,
-        "Zone Air Relative Humidity": 45.0,
-        "Ventilation": 0.25,
-        "_volume": 65.0,
+        "Zone Mean Air Temperature": 20.15,
+        "Zone Air Relative Humidity": 26.5,
+        "Ventilation": 0.00,
+        "_volume": 68.56,
         "Zone Air CO2 Concentration": 5000.0
     }
 ])
