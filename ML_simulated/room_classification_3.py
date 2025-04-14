@@ -12,6 +12,38 @@ from scipy.cluster.hierarchy import linkage, dendrogram
 from pyspark.ml.evaluation import RegressionEvaluator
 from pyspark.sql.functions import abs as spark_abs, col, mean, stddev, when
 
+def plot_sensor_prediction_vs_actual(matches):
+    if not matches:
+        print("No matches to plot.")
+        return
+
+    # Convert list of Row objects to list of dicts
+    data = [row.asDict() for row in matches]
+    df = pd.DataFrame(data)
+
+    plt.figure(figsize=(6, 6))
+    sns.scatterplot(
+        x="Zone Air CO2 Concentration", 
+        y="lr_prediction", 
+        hue="cluster_id", 
+        data=df, 
+        s=80
+    )
+
+    # Diagonal line for perfect prediction
+    min_val = min(df["Zone Air CO2 Concentration"].min(), df["lr_prediction"].min())
+    max_val = max(df["Zone Air CO2 Concentration"].max(), df["lr_prediction"].max())
+    plt.plot([min_val, max_val], [min_val, max_val], 'r--', label="Perfect Fit")
+
+    plt.xlabel("Actual CO₂ Concentration")
+    plt.ylabel("Predicted CO₂ Concentration")
+    plt.title("Sensor CO₂ Prediction vs Actual (Matched Clusters)")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig("matched_clusters_prediction_vs_actual.png")
+    plt.show()
+    
 def train_regression_models_by_cluster(clustered_df):
     cluster_models = {}
     cluster_metrics = {}
@@ -59,6 +91,7 @@ def train_regression_models_by_cluster(clustered_df):
             "RMSE": rmse,
             "R2": r2
         }
+        
 
     return cluster_models, cluster_metrics, negative_r2_clusters
 
@@ -97,7 +130,6 @@ def validate_sensor_against_all_clusters(sensor_data, cluster_ranges, cluster_mo
     if not matched_clusters:
         print("❌ No matching cluster found for sensor data.")
         return
-
     print("✅ Sensor matched the following clusters:")
     for match in matched_clusters:
         if match["lr_prediction"] < 0:
@@ -110,7 +142,9 @@ def validate_sensor_against_all_clusters(sensor_data, cluster_ranges, cluster_mo
         print(f"     Error        : {match['error']:.2f}")
         print(f"     min_#occupants: {min_occ}")
         print(f"     max_#occupants: {max_occ}")
-
+    plot_sensor_prediction_vs_actual(matched_clusters)
+    
+    
 spark = SparkSession.builder \
     .appName("Identify CO2 Clusters") \
     .master("spark://192.168.1.120:7077") \
@@ -177,6 +211,8 @@ merged_df = merged_df.filter(
     (col("_volume") > 55) & 
     (col("_volume") < 75)
 )
+row_count = merged_df.count()
+print(f"Number of rows: {row_count}")
 occupant_assembler = VectorAssembler(inputCols=[
     "Zone Mean Air Temperature", "Zone Air Relative Humidity", "Ventilation", "_volume", "#occupants"
 ], outputCol="features")

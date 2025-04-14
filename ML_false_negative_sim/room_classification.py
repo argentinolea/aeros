@@ -11,7 +11,8 @@ from sklearn.linear_model import LinearRegression
 from scipy.cluster.hierarchy import linkage, dendrogram
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
-
+import warnings
+warnings.filterwarnings("ignore")
 def train_regression_models_by_cluster(clustered_df):
     cluster_models = {}
     cluster_metrics = {}
@@ -35,7 +36,6 @@ def train_regression_models_by_cluster(clustered_df):
 
         model = LinearRegression()
         model.fit(X_train, y_train)
-
         y_pred = model.predict(X_test)
 
         mae = mean_absolute_error(y_test, y_pred)
@@ -58,6 +58,26 @@ def train_regression_models_by_cluster(clustered_df):
             "RMSE": rmse,
             "R2": r2
         }
+        
+        plt.figure(figsize=(8, 6))
+
+        # Scatter: True vs Predicted
+        plt.scatter(y_test, y_pred, color='green', alpha=0.5, s=30, label="Actual CO₂")
+
+        # Identity line
+        min_val = min(min(y_test), min(y_pred))
+        max_val = max(max(y_test), max(y_pred))
+        plt.plot([min_val, max_val], [min_val, max_val], color='blue', linewidth=2, alpha=0.5, label="Ideal Fit")
+
+
+        plt.xlabel("True CO₂ Concentration")
+        plt.ylabel("Predicted CO₂ Concentration")
+        plt.title(f"Linear Regression Fit for Cluster {cluster_id}")
+        plt.grid(True)
+        plt.legend()
+        plt.tight_layout()
+        plt.savefig(f"lr_fit_cluster_{cluster_id}.png")
+        plt.show()
 
     return cluster_models, cluster_metrics, negative_r2_clusters
 
@@ -129,6 +149,10 @@ merged_df = merged_df[
                     (merged_df["humidity"] < 80) &
                     (merged_df["volume"] > 55) &
                     (merged_df["volume"] < 75)]
+
+
+row_count = merged_df.shape[0]
+print(f"Number of rows: {row_count}")
 
 feature_columns = ["temperature", "humidity", "ventilation rate", "volume", "occupants_modified"]
 

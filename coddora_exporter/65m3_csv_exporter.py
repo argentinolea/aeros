@@ -12,6 +12,9 @@ import h5py
 import os
 import shutil
 import datetime
+import glob
+import re
+import os
 
 spark = SparkSession.builder \
     .appName("Identify CO2 Low Variance Clusters") \
@@ -90,11 +93,11 @@ df = df.withColumn("Zone Mean Air Temperature", ps_round(col("Zone Mean Air Temp
 df = df.withColumn("#occupants", round(col("maxOccupants") * col("Occupancy")).cast("int"))
 df = df.filter((col("_volume") >= 55) & (col("_volume") <= 75))
 df = df.withColumn("Datetime", fix_date_time_udf(col("Datetime")))
-
+row_count = df.count()
+print(f"Number of rows: {row_count}")
 df = df.withColumn("BinaryOccupancy", col("BinaryOccupancy").cast("int"))
 df = df.withColumn("presence", (col("BinaryOccupancy") == 1))
 window_spec = Window.orderBy("Datetime")
-
 CO2_occupant_dir = "65m3_export"
 df.select(
     "Datetime",
@@ -105,9 +108,12 @@ df.select(
     "_volume",
     "presence",
     "#occupants",
-).write.mode("overwrite").option("header", True).csv(CO2_occupant_dir)
+).coalesce(1).write.mode("overwrite").option("header", False).csv(CO2_occupant_dir)
 
-#df.coalesce(1).write.csv(CO2_occupant_dir, sep=";", header=True, mode="overwrite")
-csv_file = [f for f in os.listdir(CO2_occupant_dir) if f.startswith("part-")][0]
-shutil.move(os.path.join(CO2_occupant_dir, csv_file), "65m3_export.csv")
+part_file = glob.glob(os.path.join(CO2_occupant_dir, "part-*.csv"))[0]
+final_output_path = "65m3_export.csv"
+
+shutil.move(part_file, final_output_path)
+
+# Step 3: Clean up the temporary directory
 shutil.rmtree(CO2_occupant_dir)

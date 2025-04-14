@@ -11,6 +11,10 @@ import h5py
 from scipy.cluster.hierarchy import linkage, dendrogram
 from pyspark.ml.evaluation import RegressionEvaluator
 from pyspark.sql.functions import abs as spark_abs, col, mean, stddev, when
+from pyspark.sql.functions import unix_timestamp
+from pyspark.sql.functions import udf
+from pyspark.sql.types import TimestampType,BooleanType,DoubleType
+
 
 spark = SparkSession.builder \
     .appName("Identify CO2 Clusters") \
@@ -52,6 +56,18 @@ def read_metadata_table(file_path, key="metadata/table"):
         }
         return pd.DataFrame(flattened_metadata)
 
+def fix_date_time(date_str):
+    # Handle "24:00:00" by replacing with "00:00:00" and adding a day
+    date_str = date_str.strip()
+    full_date_str = f"2024/{date_str}"
+    if "24:00:00" in full_date_str:
+        date_fixed = full_date_str.replace("24:00:00", "00:00:00")
+        dt = pd.to_datetime(date_fixed, format="%Y/%m/%d  %H:%M:%S")
+        return dt + pd.Timedelta(days=1)  # Move to next day
+    else:
+        return pd.to_datetime(full_date_str, format="%Y/%m/%d  %H:%M:%S")
+    
+    
 data_df = read_data_table(input_file_path)
 metadata_df = read_metadata_table(input_file_path)
 
